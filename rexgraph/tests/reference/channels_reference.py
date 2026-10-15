@@ -1,40 +1,10 @@
-"""
-The four channel operators (T, G, F, C) and the relational Laplacian RL_4.
+"""Dense NumPy fixtures for four channel operators and their normalized sum.
 
-Pure NumPy reference implementation matching the corrected definitions
-from `rexgraph.core` (the compiled Cython modules). This module lives
-in `rexgraph/tests/reference/` as the algebraic correctness oracle for
-the compiled kernels: every compiled kernel has a pure numpy reference
-here that the math correctness tests compare against.
-
-CRITICAL: every channel must be trace normalized BEFORE summing into RL.
-Without this:
-    - tr(RL) ≠ 4 (the framework identity is violated)
-    - χ(e, k) is not simplex-valued (sums won't equal 1)
-    - φ(v, k) via pseudoinverse is not simplex-valued (needs clipping)
-    - κ does not live in [0, 1]
-    - any clipping/renormalization is masking a bug, not fixing it
-
-Definitions (from the corrected reference in `rcf_session_bundle`):
-
-    L1_down = B_1^T @ B_1                              topological Laplacian
-    L_O = I - D_ov^(-1/2) @ K @ D_ov^(-1/2)            overlap Laplacian
-        where K[i,j] = sum_v W[v] * |B_1[v,i]| * |B_1[v,j]|
-        and   d_ov[i] = sum_j K[i, j]                  ROW SUM, not diagonal
-    L_SG = D_{|K_off|} - K_off                         frustration Laplacian
-        where K_s = B_1^T @ diag(w_v) @ B_1
-              w_v = 1 / log(deg(v) + e)                inverse-log-degree
-              K_off = K_s with diagonal zeroed
-    L_C = L1_down + B_2 @ B_2^T                        copath / line-graph Hodge
-
-    hat_T = L1_down / tr(L1_down)
-    hat_G = L_O      / tr(L_O)
-    hat_F = L_SG     / tr(L_SG)
-    hat_C = L_C      / tr(L_C)
-
-    RL = hat_T + hat_G + hat_F + hat_C    so tr(RL) = 4 by construction
-
-Reference: rcf_session_bundle/rex_phase_b_v2.py (the corrected version).
+The functions construct the signed down Laplacian, normalized overlap operator,
+frustration Laplacian and a copath operator containing both Hodge sectors.
+Each nonzero channel is divided by its trace before summation. A zero channel
+contributes the zero matrix, so the sum's trace is the number of nonzero channels.
+Tests use this declared operator profile to compare selected compiled operations.
 """
 
 from __future__ import annotations
@@ -93,10 +63,8 @@ def build_L_O(B_1: np.ndarray, vertex_weights: np.ndarray) -> np.ndarray:
 
     Returns symmetric PSD with eigenvalues in [0, 1].
 
-    CRITICAL: d_ov is the ROW SUM of K, not the diagonal K[i, i]. The
-    diagonal as degree mistake gives tr(L_O) = 0 always (because the
-    normalized matrix has 1 on the diagonal everywhere by construction)
-    and produces eigenvalues to -60 on real data.
+    The degree vector contains row sums of K, including off diagonal overlap.
+    Using only the diagonal would define a different normalization.
 
     Parameters
 

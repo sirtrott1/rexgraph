@@ -1,6 +1,6 @@
 """An anchor is what makes a rewritten trail detectable.
 
-The chain proves no entry was edited in place. It cannot prove the tail was not
+The chain detects edits that leave subsequent hashes unchanged. It cannot detect a tail
 rewritten wholesale, because whoever rewrites it recomputes every digest from the point
 they changed and `verify` then reports a perfectly valid chain. An anchor is a statement
 kept off the box about where the trail stood at one moment, so a rewrite has to also

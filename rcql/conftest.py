@@ -9,6 +9,12 @@ import os
 import pathlib
 import sys
 
+_test_scripts = str(pathlib.Path(__file__).resolve().parent.parent / "scripts")
+if _test_scripts not in sys.path:
+    sys.path.insert(0, _test_scripts)
+from _rexgraph_test_state import prepare_test_state
+prepare_test_state()
+
 _repo = pathlib.Path(__file__).resolve().parent.parent
 
 # Installed wheel tests must neither replace installed packages nor reach for

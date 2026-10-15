@@ -11,6 +11,12 @@ import os
 import importlib.util
 import sys
 
+_test_scripts = str(pathlib.Path(__file__).resolve().parent / "scripts")
+if _test_scripts not in sys.path:
+    sys.path.insert(0, _test_scripts)
+from _rexgraph_test_state import prepare_test_state
+prepare_test_state()
+
 import rexgraph
 
 _src = str(pathlib.Path(__file__).parent / "rexgraph")
@@ -38,7 +44,7 @@ elif _src not in rexgraph.__path__:
 #
 # Bind each one to its installed location instead, and only when it is shadowed,
 # so an environment without the distribution still raises ImportError and still skips.
-for _dist in ("rcql", "rcdb", "system"):
+for _dist in (() if os.environ.get("REXGRAPH_TEST_INSTALLED") == "1" else ("rcql", "rcdb", "system")):
     _shadowed = sys.modules.get(_dist)
     if _shadowed is not None and getattr(_shadowed, "__file__", None) is not None:
         continue

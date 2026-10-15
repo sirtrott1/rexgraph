@@ -1,13 +1,9 @@
-"""
-agent.cache: content addressed cache for pipeline analysis.
+"""Cache serialized complexes, analysis and JSON results by content and parameters.
 
-Each pipeline run otherwise rebuilds the complex, recomputes eigenvalues and re runs
-Hodge from scratch, even for an identical file. This module caches the built RexGraph
-(via ``RexGraph.to_dict()``) together with its analysis dict, keyed by a SHA-256 of the
-input content plus the analysis depth, under ``~/.cache/rexgraph/``.
-
-The cache is best effort: any failure to read or write falls back to
-recomputation, so it can never break a run.
+Complexes use the RCDB serializer. Their JSON sidecars contain analysis, source
+metadata and a digest of the serialized complex. Reads reject incomplete or
+inconsistent pairs, and filesystem or serialization errors produce a cache miss.
+Entry retention is bounded by periodic pruning in the configured cache directory.
 """
 
 from __future__ import annotations
@@ -17,101 +13,141 @@ import json
 import logging
 import os
 from pathlib import Path
+import tempfile
 from typing import Any
+
+from agent.data_paths import cache_root
 
 logger = logging.getLogger(__name__)
 
 _ENV_DISABLE = "REXGRAPH_NO_CACHE"
 
-#: Bumped whenever what gets written changes shape. It is mixed into the key, so a
-#: change MISSES stale entries rather than deserializing them into new code.
-CACHE_VERSION = "3"
+#: Included in keys and payloads to invalidate incompatible serialized entries.
+CACHE_VERSION = "4"
 
-#: entries kept before the oldest are dropped. A cache nothing ever evicts is a disk
-#: leak, which at ingest scale is an operational problem rather than an untidiness.
-MAX_ENTRIES = int(os.environ.get("REXGRAPH_CACHE_MAX_ENTRIES", "2000"))
+#: Completed result entries retained after a prune sweep.
+try:
+    MAX_ENTRIES = max(0, int(os.environ.get("REXGRAPH_CACHE_MAX_ENTRIES", "2000")))
+except ValueError:
+    MAX_ENTRIES = 2000
+    logger.warning("Invalid REXGRAPH_CACHE_MAX_ENTRIES; using 2000")
 
 #: writes between prune sweeps: scanning the directory on every write is O(entries).
 _PRUNE_EVERY = 128
-_writes_since_prune = 0
+# Short command line runs must enforce retention without reaching a full interval.
+_writes_since_prune = _PRUNE_EVERY - 1
 
 
-def cache_dir() -> Path:
-    root = os.environ.get("REXGRAPH_CACHE_DIR")
-    p = Path(root) if root else Path.home() / ".cache" / "rexgraph"
-    p.mkdir(parents=True, exist_ok=True)
+def cache_dir(*, create: bool = True) -> Path:
+    """Return the cache directory, creating it only when requested."""
+    p = cache_root()
+    if create:
+        p.mkdir(parents=True, exist_ok=True)
     return p
 
 
 def enabled() -> bool:
-    return os.environ.get(_ENV_DISABLE, "").lower() not in ("1", "true", "yes")
+    return MAX_ENTRIES > 0 and os.environ.get(_ENV_DISABLE, "").lower() not in ("1", "true", "yes")
 
 
 def content_key(content: Any, depth: str = "standard", extra: str = "") -> str:
-    """Return a stable cache key for content + depth.
+    """Return a stable key for content, analysis depth, extra parameters and format.
 
     ``content`` may be bytes, str, or a file path (its bytes are read).
     """
     h = hashlib.sha256()
     try:
         if isinstance(content, (bytes, bytearray)):
-            h.update(bytes(content))
-        elif isinstance(content, (str, os.PathLike)) and Path(str(content)).exists():
-            with open(content, "rb") as fh:
-                for chunk in iter(lambda: fh.read(1 << 20), b""):
-                    h.update(chunk)
+            h.update(content)
+        elif isinstance(content, (str, os.PathLike)):
+            text = os.fspath(content)
+            try:
+                is_file = Path(text).is_file()
+            except (OSError, ValueError):
+                is_file = False
+            if is_file:
+                with open(content, "rb") as fh:
+                    for chunk in iter(lambda: fh.read(1 << 20), b""):
+                        h.update(chunk)
+            else:
+                h.update(str(text).encode("utf-8", "replace"))
         else:
             h.update(str(content).encode("utf-8", "replace"))
     except Exception:
+        h = hashlib.sha256()
         h.update(repr(content).encode("utf-8", "replace"))
-    h.update(f"|depth={depth}|{extra}|v={CACHE_VERSION}".encode())
-    return h.hexdigest()
+    parameters = json.dumps([depth, extra, CACHE_VERSION], ensure_ascii=True).encode()
+    return hashlib.sha256(h.digest() + parameters).hexdigest()
 
 
 def _version_salt() -> str:
     return CACHE_VERSION
 
 
+def _entry_path(key: str, suffix: str) -> Path:
+    if (not isinstance(key, str) or not key or key in {".", ".."}
+            or any(char in key for char in ("/", "\\", ":", "\x00"))):
+        raise ValueError("cache key must be a single filename component")
+    return cache_dir(create=False) / f"{key}{suffix}"
+
+
 def _blob_path(key: str) -> Path:
-    # serialize_complex writes a framed blob. CACHE_VERSION 3 uses .rexblob.
-    return cache_dir() / f"{key}.rexblob"
+    return _entry_path(key, ".rexblob")
 
 
 def _side_path(key: str) -> Path:
-    return cache_dir() / f"{key}.json"
+    return _entry_path(key, ".analysis.json")
 
 
 def _write_atomic(path: Path, data: bytes) -> None:
-    """Publish `path` atomically, through a temp name unique to this writer.
+    """Publish a complete file with a temporary name unique to each write."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix=f"{path.name}.", suffix=".tmp", dir=path.parent)
+    tmp = Path(name)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
-    with_suffix('.tmp') gives every writer of a key the SAME temp path, so two
-    processes caching the same input could interleave into it and publish a spliced
-    file. os.replace is atomic; the write feeding it has to be private.
-    """
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    with open(tmp, "wb") as fh:
-        fh.write(data)
-        fh.flush()
-        os.fsync(fh.fileno())
-    os.replace(tmp, path)
+
+def _entries(root: Path):
+    """Yield completed entry files without including configuration or process files."""
+    for path in root.glob("*.json"):
+        try:
+            if path.name.endswith(".payload.json"):
+                victims = (path,)
+            else:
+                if path.name.endswith(".analysis.json"):
+                    blob = root / (path.name.removesuffix(".analysis.json") + ".rexblob")
+                else:
+                    blob = path.with_suffix(".rexblob")
+                if not blob.is_file():
+                    continue
+                victims = (path, blob)
+            yield path.stat().st_mtime_ns, victims
+        except OSError:
+            continue
 
 
 def entry_count() -> int:
     try:
-        return sum(1 for _ in cache_dir().glob("*.json"))
+        return sum(1 for _ in _entries(cache_dir(create=False)))
     except Exception:
         return 0
 
 
 def prune(max_entries: int | None = None) -> int:
-    """Drop the oldest entries beyond `max_entries`. Returns how many files went."""
-    cap = MAX_ENTRIES if max_entries is None else int(max_entries)
+    """Remove the oldest completed entries beyond the limit and return files removed."""
+    cap = max(0, MAX_ENTRIES if max_entries is None else int(max_entries))
     removed = 0
     try:
-        sides = sorted(cache_dir().glob("*.json"), key=lambda p: p.stat().st_mtime)
-        for side in sides[:max(0, len(sides) - cap)]:
-            stem = side.name.split(".")[0]
-            for victim in (side, cache_dir() / f"{stem}.rexblob"):
+        entries = sorted(_entries(cache_dir(create=False)), key=lambda entry: entry[0])
+        for _, victims in entries[:max(0, len(entries) - cap)]:
+            for victim in victims:
                 try:
                     victim.unlink()
                     removed += 1
@@ -131,31 +167,28 @@ def _maybe_prune() -> None:
 
 
 def _generic_path(key: str) -> Path:
-    """Generic payloads get their own suffix: a bare `<key>.json` would collide with
-    the analysis sidecar, which has a different shape."""
-    return cache_dir() / f"{key}.payload.json"
+    """Return the JSON result path, distinct from an analysis sidecar."""
+    return _entry_path(key, ".payload.json")
 
 
 def get(key: str) -> dict | None:
     """Return the cached JSON payload for `key`, or None."""
     if not enabled():
         return None
-    p = _generic_path(key)
-    if not p.exists():
-        return None
     try:
-        payload = json.loads(p.read_text(encoding="utf-8"))
+        payload = json.loads(_generic_path(key).read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or payload.get("version") != CACHE_VERSION:
+            return None
+        data = payload.get("data")
+        return data if isinstance(data, dict) else None
     except Exception as e:
         logger.debug("cache read failed for %s: %s", key, e)
         return None
-    if not isinstance(payload, dict) or payload.get("version") != CACHE_VERSION:
-        return None
-    return payload.get("data")
 
 
 def set(key: str, payload: dict) -> bool:
     """Store a JSON serializable `payload` under `key`."""
-    if not enabled():
+    if not enabled() or MAX_ENTRIES == 0:
         return False
     try:
         from rexgraph.io._compat import dumps
@@ -175,56 +208,49 @@ def set(key: str, payload: dict) -> bool:
 def get_rex_and_analysis(key: str):
     """Return ``(rex, analysis, meta)`` from cache, or ``(None, None, None)``.
 
-    The sidecar is written last, so a torn pair reads as a miss rather than as a
-    complex with no analysis beside it.
+    The sidecar digest must match the blob before it is deserialized.
     """
     if not enabled():
         return None, None, None
-    side, blob = _side_path(key), _blob_path(key)
-    if not side.exists() or not blob.exists():
-        return None, None, None
     try:
+        side, blob = _side_path(key), _blob_path(key)
         payload = json.loads(side.read_text(encoding="utf-8"))
-        if payload.get("version") != CACHE_VERSION:
+        if not isinstance(payload, dict) or payload.get("version") != CACHE_VERSION:
             return None, None, None
         meta = payload.get("meta") or {}
         analysis = payload.get("analysis")
+        if not isinstance(meta, dict) or not isinstance(analysis, dict):
+            return None, None, None
+        data = blob.read_bytes()
+        if payload.get("blob_digest") != hashlib.sha256(data).hexdigest():
+            return None, None, None
         from agent.rcdb import deserialize_complex
-        rex = deserialize_complex(blob.read_bytes())
+        rex = deserialize_complex(data)
     except Exception as e:
         logger.debug("cache read failed for %s: %s", key, e)
         return None, None, None
     if rex is not None and meta:
-        # to_dict/from_dict never carried _agent_meta, so a cached complex came back
-        # stripped of its labels and source text while the caller got them as a
-        # separate return value. Harmless while everything read that third value;
-        # not harmless once the complex itself is what gets persisted or handed on.
+        # Restore labels and source metadata on the complex as well as in the result.
         rex._agent_meta = dict(meta)
     return rex, analysis, meta
 
 
 def store_rex_and_analysis(key: str, rex, analysis: dict, meta: dict) -> bool:
-    """Cache a built complex plus its analysis and meta.
-
-    The complex goes through the same serializer the RCDB uses; the
-    analysis and meta are JSON. Neither is pickle. Every other serializer in the
-    tree avoids it deliberately, and this is the one whose filenames are a
-    predictable hash of content anybody can supply.
-    """
-    if not enabled():
+    """Cache a serialized complex with its analysis, metadata and blob digest."""
+    if not enabled() or MAX_ENTRIES == 0:
         return False
     try:
         from agent.rcdb import serialize_complex
         from rexgraph.io._compat import dumps
         blob = serialize_complex(rex)
-        side = dumps({"version": CACHE_VERSION, "analysis": analysis,
+        side = dumps({"version": CACHE_VERSION, "blob_digest": hashlib.sha256(blob).hexdigest(),
+                      "analysis": analysis,
                       "meta": meta or {}}).encode("utf-8")
     except Exception as e:
         logger.debug("cache serialisation skipped for %s: %s", key, e)
         return False
     try:
-        # blob first, sidecar last: the sidecar's presence is what makes an entry
-        # readable, so a crash between the two leaves a miss, not a half entry.
+        # Publish the sidecar last; readers also verify the pair's digest.
         _write_atomic(_blob_path(key), blob)
         _write_atomic(_side_path(key), side)
     except Exception as e:

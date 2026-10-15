@@ -176,12 +176,11 @@ def from_mapping(name, sections, *, grade=1, n_cells=0, spans=None, method=""):
 
 def add_coarsening(rex, name, refines, parent, labels, *, spans=None, method="",
                    grade=1):
-    """Attach a layer that COARSENS an existing one, storing only the parent map.
+    """Attach a coarser section layer through a parent map over an existing layer.
 
-    `parent[i]` is the index of the section of THIS layer that section `i` of `refines`
-    belongs to. Nothing about the cells is stored, because a paragraph owns sentences and
-    the sentences already say which cells they own; re listing them cost 45x what the map
-    costs and could disagree with the finer layer, which a derived one cannot.
+    ``parent[i]`` identifies the new layer's section containing section i of ``refines``.
+    Cell membership is derived from the finer layer, so the stored parent map avoids
+    duplicating cell lists and keeps the two layers consistent.
     """
     store = getattr(rex, "_sectionings", None) or {}
     if refines not in store:

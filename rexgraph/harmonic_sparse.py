@@ -1,20 +1,15 @@
-"""rexgraph.harmonic_sparse: the harmonic plane, combinatorial and low rank.
+"""Sparse cycle frames, harmonic frames and projection of relation signals.
 
-Per the math reference Part V: the harmonic space
-`ker(L1) = ker(B1) ∩ ker(B2ᵀ)` is a **combinatorial** object: a basis of the cycle
-space `ker(B1)` is the set of spanning tree fundamental cycles (integer ±1 vectors),
-projected onto `ker(B2ᵀ)` to remove the face (curl) directions. The harmonic
-projector is applied **low rank**:
+The harmonic space is ker(B1) intersected with ker(B2 transpose). For
+pairwise relations the cycle frame starts from spanning tree fundamental
+cycles. The frame is validated against B1 and the expected nullity;
+branching relations can require the exact boundary nullspace instead.
+Face directions are removed to obtain a harmonic frame H.
 
-    P_harm · x = H (HᵀH)⁻¹ Hᵀ x          (H is nE × β₁)
-
-Here β₁ = nE - rank(B1) - rank(B2), assuming B1 B2 = 0. The cycle space
-before removing face directions has dimension nE - rank(B1).
-
-so it never forms the dense nE×nE projector and never calls an eigensolver: the
-correct, scale free replacement for `_harmonic.harmonic_projectors` (which builds
-`hb@hbᵀ`, `B1ᵀ pinv(B1B1ᵀ) B1`, and `eye(nE)`: three dense nE×nE matrices) whenever
-only the harmonic component of a flow is needed.
+Projection applies H (H transpose H)^-1 H transpose to a signal, using
+the frame coordinates without forming a dense nE by nE projector.
+When B1 B2 = 0, the frame dimension is nE - rank(B1) - rank(B2).
+No eigenvalue decomposition is required for these frame operations.
 """
 from __future__ import annotations
 
@@ -232,11 +227,7 @@ def _validated_cycle_basis(B1, nE, src=None, tgt=None, rex=None):
         expected = nE - int(_sparse_rank(B1))           # exact dim ker(B1)
     except Exception:
         expected = None
-    # The check stays SPARSE. `C.toarray()` here undid the whole point of building a
-    # sparse basis: on the Gene Ontology joined with its annotations C is 151331 x
-    # 110681, which is 134 GB dense, and the validation is the only thing that wanted
-    # it. Neither half of the test needs a dense array: the dimension is a shape, and
-    # B1 @ C is a sparse product whose norm scipy takes directly.
+    # Validate the column count and sparse residual without densifying the basis.
     n_cols = C.shape[1]
     if expected is not None and n_cols != expected:
         valid = False
@@ -433,19 +424,11 @@ def harmonic_basis(rex, *, native=False):
     Spans exactly `ker(L1)` (the same space the dense eigendecomposition returns) but
     combinatorially. Its column count is β₁ = nE - rank(B1) - rank(B2).
 
-    COST, because it is a column per hole and holes are not rare. Building the basis
-    is a spanning tree plus one tree path per non tree relation, so it scales with
-    dim_H times the path length, and dim_H is a fact about the data rather than a
-    tuning knob: one Gutenberg book runs nE 1,991,070 with β₁ 1,769,648, where this
-    had not returned after 12 minutes and the result would not have been a feature
-    vector if it had.
-
-    `rex.betti[1]` is the exact column count and costs about 5s at that size, so ask
-    it first when the complex is not known to be small; there is no threshold here
-    deciding for you. When β₁ is large, do not build the basis: pass the cycles you
-    actually care about to `harmonic_winding(H, flow)` or
-    `RexGraph.harmonic_winding(flow, cycles=...)` and pay one matvec against those
-    alone (1 to 4 ms for 16 to 256 cycles at that same size).
+    Building the cycle frame requires a spanning tree and a tree path per
+    relation outside the tree, followed by face reduction. Its storage grows
+    with the number and lengths of those paths. Check `rex.betti[1]` before
+    constructing a full harmonic frame. To compute circulation around selected
+    cycles, supply them to `RexGraph.harmonic_winding(flow, cycles=...)`.
 
     multiplicity_dimension counts repeated columns; simple_cycle_dimension
     reports the remaining cycle dimension.
@@ -462,9 +445,7 @@ def harmonic_basis(rex, *, native=False):
 
 
 def _b1_csc(rex):
-    """B1 as sparse CSC from the dual. `rex.B1` is a dense cached_property and
-    materialises nV x nE: 3,317 GB on a Gutenberg complex, which raises rather than
-    swaps, so nothing here goes near it."""
+    """Read B1 as sparse CSC from the stored dual without allocating a dense matrix."""
     from rexgraph.core._sparse import to_scipy_csr
     rex._ensure_clean()
     matrix = to_scipy_csr(rex._B1_dual).tocsc()
@@ -513,15 +494,11 @@ def multiplicity_groups(rex, min_size=2):
 
 
 def _identical_runs(idx, dat):
-    """Group identical rows of (idx | dat). Returns `(order, bounds)` such that
-    `order[bounds[i]:bounds[i+1]]` is one group of identical rows.
+    """Group identical rows of indices and coefficients.
 
-    `np.unique(axis=0)` lexsorts a 2k-wide float view and costs 21s on a 2e6-relation
-    book. This hashes each row to one uint64, sorts THAT (a single O(m log m) pass
-    over a 1-D array), and then cuts runs wherever the FULL rows differ, so a
-    collision cannot merge two different relations. It can only split one group into
-    several runs, which is detected by a hash appearing in more than one run and
-    repaired exactly for those hashes alone. In practice that never fires.
+    Return ``(order, bounds)`` so ``order[bounds[i]:bounds[i+1]]`` identifies one group.
+    Each row is hashed to uint64, the hashes are sorted, and full rows are compared
+    before grouping. A hash collision cannot merge distinct relations.
     """
     m = idx.shape[0]
     h = np.zeros(m, dtype=np.uint64)
@@ -657,7 +634,7 @@ def multiplicity_cycles(rex, groups=None, limit=None):
     """The multiplicity cycles themselves: sparse nE x d, entries in {-1, 0, +1}.
 
     Consecutive differences within each group, which is one basis of the subspace.
-    `limit` caps the column count, since d runs to 1.5e6 on a full book.
+    `limit` caps the materialized column count when the cycle basis is large.
     """
     import scipy.sparse as sp
 

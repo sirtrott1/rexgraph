@@ -1,28 +1,9 @@
-"""
-Graded boundary Laplacian (L_gb).
+"""NumPy implementations of graded boundary Laplacian comparisons.
 
-A structural operator on the relational complex. Unlike the classical Hodge
-Laplacian which lives at a single grade, L_gb measures structural coupling
-between adjacent grades, or between channel pairs at the same grade.
-
-Three variants:
-
-1. l_gb_scalar(spec_d, spec_d1): between adjacent grades d and d+1.
-   Rank 2 by construction (difference of two rank 1 projections).
-   One positive eigenvalue (dominant side), one negative (subdominant).
-
-2. l_gb_channel_tensor(hats_A, hats_B): 4×4 within a single rex.
-   Entry [i,j] is the Frobenius norm of L_gb between channel i and channel j.
-   Acts as a structural fingerprint distinguishing graph families.
-
-3. l_gb_tower(B_list): sweep across all adjacent grade pairs.
-   Used for sphere fingerprinting: S^n has a distinctive tower signature.
-
-Reference: the published L_gb construction.
-
-This is a pure NumPy implementation. When merged into the main rexgraph
-repository, it should be reimplemented as a Cython module
-`rexgraph/core/_l_gb.pyx` for ~100x speedup on large complexes.
+``l_gb_scalar`` compares spectra at adjacent grades using the difference of two
+rank one projections. ``l_gb_channel_tensor`` computes Frobenius norms between
+channel pairs, and ``l_gb_tower`` evaluates successive boundary pairs. These
+functions provide generated comparison values for regression tests.
 """
 
 from __future__ import annotations

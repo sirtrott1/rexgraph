@@ -176,14 +176,14 @@ def corpus_metrics(rexes) -> dict:
 
 def reply_metrics(text: str, logprobs=None, token: dict = None,
                   structural: bool = False) -> dict:
-    """Metrics for a generated reply. TWO COST TIERS:
-      token (always, ~free): perplexity/varentropy from the reply's logprobs: the
-        model already produced these, so extracting them costs ~0.02 ms.
-      structural (only if `structural=True`, ~250 ms): builds the reply's OWN
-        relational complex (auto_rex) for structural_perplexity/effective_modes/
-        response_coherence + the fluent but hollow advisory. This is the expensive
-        tier, computed on demand (when the interface asks), never eagerly on every
-        reply. Best effort; never raises. Shared by /model/generate and /chat."""
+    """Compute token metrics and optional structural metrics for a generated reply.
+
+    Token metrics use supplied metrics or returned token probabilities. With
+    ``structural=True``, the function also constructs a complex from the reply and
+    computes structural perplexity, effective modes and response coherence. A failed
+    structural calculation leaves those optional fields absent. Both generation and
+    chat routes use this function.
+    """
     out: dict = {}
     if token is not None:
         out["token"] = token

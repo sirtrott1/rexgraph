@@ -5,14 +5,12 @@ relation is declined without loading the lexicon.
 """
 from __future__ import annotations
 
-import os
-
 from agent.answerers import _question as Q
+from agent.data_paths import lexical_path
 
 __all__ = ["LexicalAnswerer", "DEFAULT_WORDNET"]
 
-DEFAULT_WORDNET = os.path.expanduser(
-    "~/projects/rexgraph/data/lexical/wordnet/english-wordnet-2024.xml.gz")
+DEFAULT_WORDNET = str(lexical_path("wordnet"))
 
 #: what a question's head asks for, in this lexicon's own relation names. Declared,
 #: because it states what the structure exposes; nothing here is inferred or tuned.

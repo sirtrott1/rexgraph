@@ -34,7 +34,7 @@ SPECTRAL (per mode densities over the edge RL spectrum; no matrix free reduction
   ``schrodinger = sum_j (v_j.psi)^2 (v_j.target)^2`` over ``lambda_j > 0``: degree 4 in the
                           eigenvectors, not a trace / bilinear, so it genuinely needs the modes.
   ``coverage``          - fraction of positive RL modes activated by psi (per mode count).
-  These are available ONLY through ``build_interfacing_bundle_oracle``. They
+  These are available only through ``build_interfacing_bundle_oracle``. They
   depend on the chosen basis within repeated eigenspaces, not merely the operator.
   Full dense and explicitly requested partial spectra carry distinct metadata.
   No graph size threshold silently substitutes a partial reading for a full one.

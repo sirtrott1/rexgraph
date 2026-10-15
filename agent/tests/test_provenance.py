@@ -1,4 +1,5 @@
-"""What an answer rests on, and that the readings are the theorems and not a score."""
+"""Check source attribution and the structural measurements attached to answers.
+"""
 import numpy as np
 import pytest
 from agent.rcdb import ComplexRecord
@@ -53,7 +54,7 @@ def test_leverage_is_cached_against_the_digest():
     assert rex3 is not rex1, "a write invalidates the reading"
 
 
-def test_provenance_readings_obey_their_theorems():
+def test_provenance_readings_match_rank_and_cycle_constraints():
     index = _index(n=10, shared=4)
     rex, lev = pv.index_leverage(index)
     p = pv.store_provenance(index, [f"r{i}" for i in range(4)])
@@ -124,10 +125,10 @@ def test_out_of_range_relation_refuses():
 
 
 def test_coupling_is_opt_in_because_it_costs_a_solve():
-    """Every other reading is a lookup or a rank; this one solves the field.
+    """Check that coupling is computed only when explicitly requested.
 
-    Measured on a real store it was 1.33s of a 1.35s query, so computing it unasked
-    made every retrieval pay for a coordinate most callers never read.
+    The default source readings exclude the coupling field. A coupling=True
+    request includes the field from its additional solve.
     """
     index = _index(n=8, shared=3)
     p = pv.store_provenance(index, [f"r{i}" for i in range(4)])

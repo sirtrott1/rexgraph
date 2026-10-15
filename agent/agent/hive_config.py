@@ -17,6 +17,8 @@ own compose/attach/spawn. This module decides which bees; `hive` performs the sp
 """
 from __future__ import annotations
 
+from agent.data_paths import config_root
+
 import builtins
 import json
 import os
@@ -26,8 +28,7 @@ from pathlib import Path
 
 
 def _config_dir() -> Path:
-    base = Path(os.environ.get("REXGRAPH_CONFIG_DIR", Path.home() / ".config" / "rexgraph"))
-    return base / "hive_profiles"
+    return config_root() / "hive_profiles"
 
 
 def _slug(name: str) -> str:
@@ -61,7 +62,7 @@ BUILTIN_SPECIALTY_RULES: list[SpecialtyRule] = [
     SpecialtyRule(["coder", "-code", "codestral", "starcoder", "codeqwen"], "coder",
                   ["python", "code", "function", "refactor", "debug", "algorithm"]),
     SpecialtyRule(["math", "mathstral", "numina"], "math",
-                  ["math", "calculus", "algebra", "proof", "equation", "numeric"]),
+                  ["math", "calculus", "algebra", "calculation", "equation", "numeric"]),
     SpecialtyRule(["med", "bio", "clinical", "meditron", "biomistral", "pmc"], "bio",
                   ["biology", "protein", "clinical", "medical", "diagnosis", "gene"]),
     SpecialtyRule(["sql", "text2sql", "nsql"], "sql",

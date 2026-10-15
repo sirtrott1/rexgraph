@@ -18,7 +18,7 @@ topology is multi hop, gradient⊕curl.
 
 v1 stores the T×T content affinity like standard attention does, but the mixing operator is
 matrix free; the fully sparse (scatter, no T×T) path uses rcf_torch.cheb_apply_op, see the
-cost study in agent.benchmarks. torch is optional; import guarded at use.
+operator application in rcf_torch. PyTorch is optional and guarded at use.
 """
 from __future__ import annotations
 

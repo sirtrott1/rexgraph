@@ -31,16 +31,12 @@ def read_document(path, encoding="utf-8"):
 
 
 def _byte_starts(text, encoding="utf-8"):
-    """Character index -> byte offset, for the whole text at once.
+    """Map character indices to byte offsets in the selected encoding.
 
-    Spans have to be BYTE offsets or they cannot be seeked to. `document_layers` works on
-    the decoded string, which is right for the text logic and wrong for the heap: a text
-    handle's `seek` takes an opaque cookie, not a character count, so a character span
-    lands mid codepoint on any file with a multi byte character and returns a fragment.
-    (Measured: 'ng! No, it'll never' out of a book whose only oddity was curly quotes.)
-
-    utf-8 byte length is a function of the codepoint, so the map is vectorised through
-    the utf-32 view rather than encoding a slice per span.
+    Document section spans address bytes in the stored text. UTF8 byte
+    lengths are computed from a vectorized UTF32 codepoint view; other
+    encodings use their encoded lengths. The returned offsets permit
+    seeking to section boundaries without splitting encoded characters.
     """
     if encoding.lower().replace("_", "-") in ("utf-8", "utf8"):
         cp = np.frombuffer(text.encode("utf-32-le"), dtype=np.uint32)
@@ -128,11 +124,8 @@ def build_document(raw, *, profile=None, encoding=None, min_terms=1, grammar=Non
     bstart = _byte_starts(text, encoding)
     frames_seen = []
 
-    # SPANS are the base relation when the profile gates, and sentences when it does
-    # not. A frame governs a CLAUSE: measured, sentence relations here have median arity
-    # 12 against a maximum frame arity of 5, so 76% of them could not be oriented at all
-    #, not because the rule was wrong but because it was applied a layer too coarse.
-    # Gating inside the sentence puts relations in frame range.
+    # Gated profiles use spans as the base relations; other profiles use
+    # sentences. Frames apply to clauses within those spans.
     #
     # With an empty gate every sentence yields exactly one span, so this is one code
     # path and the degenerate case IS the previous behaviour. The finer layer is only
@@ -145,7 +138,7 @@ def build_document(raw, *, profile=None, encoding=None, min_terms=1, grammar=Non
     gate = set(getattr(prof, "gate", ()) or ())
 
     def _gates(tok):
-        """Punctuation ALWAYS gates, whether or not a profile lists it.
+        """Punctuation always gates, whether or not a profile lists it.
 
         A mark is the archetypal delimiter: it says where a relation ends and is not
         one of its participants. Letting it through put "." in a relation's support and

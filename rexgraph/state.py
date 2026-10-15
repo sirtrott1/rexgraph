@@ -161,13 +161,12 @@ def _unpack_w_boundary(kt, offs, vt, st=None) -> dict:
 # A CSR pointer is the INTEGRAL of the arity vector: `boundary_ptr[i+1] - boundary_ptr[i]`
 # is how many vertices relation `i` reaches. A string offset array is the integral of the
 # label lengths. Storing an integral of small numbers stores large numbers, and the large
-# numbers are what a compressor then has to work on: measured on one document,
-# `boundary_ptr` took 19.2 KiB compressed and its first difference took 4.1.
+# numbers are passed to the compressor. First differences retain the small
+# integer lengths from which the pointer array can be reconstructed.
 #
 # An identity partition's `indptr`/`indices` are `arange`. That is the map saying "one
 # section per cell", which is real structure and carries nothing beyond its own length;
-# it compressed to 91% of itself because an ascending uint16 run has no redundancy a
-# general compressor can name.
+# endpoints and length reconstruct the complete range without storing every entry.
 #
 # So: store the DERIVATIVE and integrate on load, store an `arange` as its endpoints.
 # Both are exactly invertible over the integers, which is the only licence a storage
@@ -453,7 +452,7 @@ def _encode_legacy_state(rex):
         h["sectionings"] = sect
         # the layer hierarchy hashed as its own Merkle tree: the interior nodes ARE the
         # paragraph and chapter digests, so this replaces per layer hashing rather than
-        # adding to it, and it carries inclusion proofs the flat digest cannot.
+        # adding to it, and it supports inclusion verification beyond the flat digest.
         from rexgraph.merkle import pack_merkle
         mk = pack_merkle(rex, t, h)
         if mk:

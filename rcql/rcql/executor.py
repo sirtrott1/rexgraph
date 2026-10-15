@@ -605,7 +605,7 @@ class Executor:
             )
         # A normal phrase receives the same contract check as EXPLAIN before even its
         # first adapter runs.  The returned plan is intentionally not discarded work:
-        # it is the source/grade/basis/time proof for this execution, while runtime
+        # it is the source, grade, basis and time verification for this execution, while runtime
         # remains responsible for data dependent bounds and numerical residuals.
         from .planning import _plain_source, _plain_type
         from .types import RCType

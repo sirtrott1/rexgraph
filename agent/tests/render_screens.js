@@ -8,7 +8,7 @@
    exist.
 
    Effects are not run. Anything that needs the network or a real DOM stays stubbed,
-   so this proves a screen renders, not that it works. */
+   so this checks that a screen renders, not that it works. */
 const fs = require("fs");
 const path = require("path");
 

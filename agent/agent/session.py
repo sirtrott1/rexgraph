@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .formats import BUNDLE_SUFFIX
+from .data_paths import sessions_root
 
 
 class SnapshotUnreadable(RuntimeError):
@@ -47,11 +48,17 @@ class Session:
     recoverable by loading the corresponding .rcbd bundle.
     """
 
-    def __init__(self, session_id: str, storage_dir: str):
+    def __init__(self, session_id: str, storage_dir: str, *, _create: bool = True):
+        if (not isinstance(session_id, str) or not session_id or session_id in {".", ".."}
+                or any(char in session_id for char in ("/", "\\", ":", "\x00"))):
+            raise ValueError("session ID must be a single directory name")
         self.session_id = session_id
-        self.storage_dir = Path(storage_dir)
+        self.storage_dir = Path(storage_dir).expanduser()
         self.session_dir = self.storage_dir / session_id
-        self.session_dir.mkdir(parents=True, exist_ok=True)
+        if self.session_dir.is_symlink():
+            raise ValueError("session directories cannot be symbolic links")
+        if _create:
+            self.session_dir.mkdir(parents=True, exist_ok=True)
 
         self.snapshots: list[Snapshot] = []
         self.current_step: int = -1
@@ -93,30 +100,31 @@ class Session:
         summary : str
             One-line description.
         """
-        step = len(self.snapshots)
+        from rexgraph.io import save_rcbd
+        from rexgraph.io.publication import publication_lock
 
-        # Serialize the rex to disk
-        rex_filename = f"snapshot_{step:04d}{BUNDLE_SUFFIX}"
-        rex_path = str(self.session_dir / rex_filename)
-        try:
-            from rexgraph.io import save_rcbd
+        with publication_lock(self.session_dir):
+            self._assert_saved_history()
+            step = len(self.snapshots)
+            rex_filename = f"snapshot_{step:04d}_{uuid.uuid4().hex}{BUNDLE_SUFFIX}"
+            rex_path = str(self.session_dir / rex_filename)
             save_rcbd(rex_path, rex)
-        except Exception:
-            rex_path = None
-
-        snapshot = Snapshot(
-            step=step,
-            timestamp=time.time(),
-            action=action,
-            params=params or {},
-            rex_path=rex_path,
-            results=results,
-            summary=summary or f"{action} (step {step})",
-        )
-        self.snapshots.append(snapshot)
-        self.current_step = step
-        self._current_rex = rex
-        self._save_index()
+            snapshot = Snapshot(
+                step=step,
+                timestamp=time.time(),
+                action=action,
+                params=params or {},
+                rex_path=rex_path,
+                results=results,
+                summary=summary or f"{action} (step {step})",
+            )
+            # Publish history before exposing the new state to readers. A failed
+            # index write retains the graph bundle for recovery and leaves this
+            # object's previous history intact.
+            self._save_index(snapshots=[*self.snapshots, snapshot], current_step=step)
+            self.snapshots.append(snapshot)
+            self.current_step = step
+            self._current_rex = rex
 
     def at(self, step: int):
         """Return the RexGraph at a specific timestep.
@@ -131,8 +139,15 @@ class Session:
             raise ValueError(f"No serialized rex at step {step}")
 
         from rexgraph.io import load_rcbd
+        path = Path(snapshot.rex_path)
+        local = self.session_dir / path.name
+        # Absolute paths in older indices remain readable after a session is moved.
+        if local.exists():
+            path = local
+        elif not path.is_absolute():
+            path = self.session_dir / path
         try:
-            rex = load_rcbd(snapshot.rex_path)
+            rex = load_rcbd(path)
         except Exception as e:
             # A snapshot that will not load is this session's problem, not a fault
             # in whatever is asking for it. Naming the session and step turns an
@@ -174,8 +189,26 @@ class Session:
 
     # Persistence
 
-    def _save_index(self):
+    def _assert_saved_history(self):
+        """Refuse to overwrite a history changed by another loaded session."""
+        path = self.session_dir / "session_index.json"
+        try:
+            with path.open(encoding="utf-8") as stream:
+                index = json.load(stream)
+        except FileNotFoundError:
+            saved = []
+        else:
+            saved = [(row.get("step"), row.get("timestamp"), row.get("rex_path"))
+                     for row in index["snapshots"]]
+        current = [(row.step, row.timestamp, row.rex_path) for row in self.snapshots]
+        if saved != current:
+            raise RuntimeError("session history changed on disk; reload the session before writing")
+
+    def _save_index(self, *, snapshots=None, current_step=None):
         """Persist the session index (metadata + snapshot list)."""
+        from rexgraph.io.publication import publication_lock, staged_publication
+        from rexgraph.io._compat import dumps
+        snapshots = self.snapshots if snapshots is None else snapshots
         index = {
             "metadata": self._metadata,
             "snapshots": [
@@ -187,23 +220,23 @@ class Session:
                     "rex_path": s.rex_path,
                     "summary": s.summary,
                 }
-                for s in self.snapshots
+                for s in snapshots
             ],
-            "current_step": self.current_step,
+            "current_step": self.current_step if current_step is None else current_step,
         }
         index_path = self.session_dir / "session_index.json"
-        with open(index_path, "w") as f:
-            json.dump(index, f, indent=2, default=str)
+        with publication_lock(self.session_dir):
+            self._assert_saved_history()
+            with staged_publication(index_path) as staged:
+                with staged.open("w", encoding="utf-8") as stream:
+                    stream.write(dumps(index, nan="null", indent=2))
 
     @classmethod
     def load(cls, session_id: str, storage_dir: str) -> Session:
         """Load a session from disk."""
-        session = cls(session_id, storage_dir)
+        session = cls(session_id, storage_dir, _create=False)
         index_path = session.session_dir / "session_index.json"
-        if not index_path.exists():
-            return session
-
-        with open(index_path) as f:
+        with open(index_path, encoding="utf-8") as f:
             index = json.load(f)
 
         session._metadata = index.get("metadata", session._metadata)
@@ -230,28 +263,28 @@ class Session:
             shutil.rmtree(self.session_dir)
 
 
-def create_session(storage_dir: str = "~/.rexgraph-agent/sessions") -> Session:
+def create_session(storage_dir: str | None = None) -> Session:
     """Create a new session with a unique ID."""
-    storage = str(Path(storage_dir).expanduser())
-    session_id = str(uuid.uuid4())[:8]
-    return Session(session_id, storage)
+    storage = str(Path(storage_dir).expanduser() if storage_dir else sessions_root())
+    Path(storage).mkdir(parents=True, exist_ok=True)
+    for _ in range(32):
+        session_id = str(uuid.uuid4())[:8]
+        try:
+            (Path(storage) / session_id).mkdir()
+        except FileExistsError:
+            continue
+        return Session(session_id, storage)
+    raise FileExistsError("could not allocate a unique session directory")
 
 
-def list_sessions(storage_dir: str = "~/.rexgraph-agent/sessions", *,
+def list_sessions(storage_dir: str | None = None, *,
                   limit: int | None = None) -> list[dict]:
-    """Saved sessions, NEWEST FIRST.
+    """List saved sessions by descending timestamp, optionally limiting the count.
 
-    This sorted by directory name, which is a random hex id, so the order carried no
-    meaning and the session you just made landed wherever its id happened to sort. On a
-    real install that is not a cosmetic problem: with 5278 sessions on disk a freshly
-    recorded chat sat at index 1177, present in the list and unfindable in a dropdown.
-
-    Recency is the order a list of sessions wants, and `limit` is here because a caller
-    populating a control does not want five thousand of anything. Reading the index for
-    the timestamp is cheap next to loading each session, so the sort is done on the index
-    and only the surviving `limit` are loaded.
+    Read timestamps from session indexes, sort their paths, then load the
+    selected sessions. A missing storage directory returns an empty list.
     """
-    storage = Path(storage_dir).expanduser()
+    storage = Path(storage_dir).expanduser() if storage_dir else sessions_root()
     if not storage.exists():
         return []
 

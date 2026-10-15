@@ -70,9 +70,7 @@ def _open_pair(src_kind, dst_kind, tmp_path):
 # FileStore is no longer quadratic
 
 def test_filestore_put_cost_no_longer_grows_with_the_store(tmp_path):
-    """It reserialized its whole index on every put: 4 ms at a hundred records,
-    35 ms at sixteen hundred. The blobs stay one file each, which is the reason to
-    choose it; the index does not have to be rewritten to keep that."""
+    """Compare early and late append costs in a store of generated records."""
     store = rcdb.FileStore(str(tmp_path / "fs"), read_only=False)
     early, late = [], []
     for k in range(600):

@@ -18,7 +18,7 @@ def transitions():
     return t,tp
 
 
-def test_paper_ranking_delta_with_fixed_exact_values():
+def test_ranking_delta_with_fixed_exact_values():
     t,tp=transitions();j=CoordinateMap.identity(t.domain)
     d=pagerank_solve_delta(t,tp,j,damping=Q(1,2),seed=[1,0,0],new_seed=[0,0,1])
     assert d['old_rank']==(Q(7,12),Q(1,3),Q(1,12))

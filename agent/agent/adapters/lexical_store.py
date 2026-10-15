@@ -25,14 +25,16 @@ import time
 
 import numpy as np
 
+from agent.data_paths import lexical_path, lexical_root
+
 __all__ = ["build_lexical_store", "attach_connotation"]
 
-DEFAULT_ROOT = "~/projects/rexgraph/data/lexical"
+DEFAULT_ROOT = str(lexical_root())
 
 
-def _paths(root=DEFAULT_ROOT):
-    r = os.path.expanduser(root)
-    return {
+def _paths(root=None):
+    r = os.path.expanduser(root) if root is not None else str(lexical_root())
+    paths = {
         "wordnet": os.path.join(r, "wordnet", "english-wordnet-2024.xml.gz"),
         "roget": os.path.join(r, "thesaurus", "rogets-pg22.txt"),
         "vad": os.path.join(r, "connotation", "NRC-VAD-Lexicon",
@@ -42,6 +44,10 @@ def _paths(root=DEFAULT_ROOT):
         "wiktionary": os.path.join(r, "wiktionary", "wiktionary-en.rexidx"),
         "store": os.path.join(r, "store"),
     }
+    if root is None:
+        paths.update({name: str(lexical_path(name))
+                      for name in ("wordnet", "roget", "wiktionary")})
+    return paths
 
 
 def _digest_of(rex):
@@ -101,7 +107,7 @@ def _put(store, rid, rex, info, *, source, kind, extra=None, group_labels=None,
     return meta["state_digest"]
 
 
-def build_lexical_store(root=DEFAULT_ROOT, *, pair_mode="none",
+def build_lexical_store(root=None, *, pair_mode="none",
                         include=("wordnet", "roget", "wiktionary"), log=print):
     """Load the lexical sources into a record store, in dependency order."""
     from agent.adapters import lexical as L
@@ -161,7 +167,7 @@ def build_lexical_store(root=DEFAULT_ROOT, *, pair_mode="none",
     return store, written
 
 
-def attach_connotation(store, rid="lex:wordnet", root=DEFAULT_ROOT, log=print):
+def attach_connotation(store, rid="lex:wordnet", root=None, log=print):
     """Align NRC VAD and EmoLex onto a stored complex's vertex order.
 
     A lexicon says nothing about pairs, so it is a 0 cochain and is only meaningful

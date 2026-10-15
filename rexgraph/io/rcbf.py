@@ -136,9 +136,10 @@ def _read_attribute_tail(
     if not (flags & _FLAG_ATTRS):
         if flags & (_FLAG_ATTR_KIND | _FLAG_ATTR_STR):
             raise RCBFFormatError("RCBF attribute text/kind section lacks attribute counts")
-        return attributes, slots
-
-    counts = _read_array(handle, "<u2", n_edges, section="edge attribute counts")
+    counts = (
+        _read_array(handle, "<u2", n_edges, section="edge attribute counts")
+        if flags & _FLAG_ATTRS else np.zeros(n_edges, dtype="<u2")
+    )
     total = int(np.asarray(counts, dtype=np.uint64).sum())
     if total > _MAX_ATTRIBUTE_ROWS:
         raise RCBFFormatError("RCBF edge attribute count exceeds the import limit")
@@ -402,8 +403,10 @@ def load_rcbf(path: str | Path, *, allow_current_snapshot: bool = False):
                 lo, hi = int(face_ptr[face]), int(face_ptr[face + 1])
                 if np.unique(face_rows[lo:hi]).size != hi - lo:
                     raise RCBFFormatError("RCBF C2 boundary repeats a C1 relation")
-            for face in range(n_faces):
-                _read_cstring(handle, section=f"face name {face}")
+        face_names = [
+            _read_cstring(handle, section=f"face name {face}")
+            for face in range(n_faces)
+        ]
 
         signal_values: dict[str, np.ndarray] = {}
         for signal in range(n_signals):
@@ -411,6 +414,8 @@ def load_rcbf(path: str | Path, *, allow_current_snapshot: bool = False):
             values = _read_array(
                 handle, "<f8", n_edges, section=f"signal values {signal}"
             )
+            if name in signal_values:
+                raise RCBFFormatError("RCBF repeats a signal name; cannot preserve distinct signals")
             if not np.all(np.isfinite(values)):
                 raise RCBFFormatError("RCBF signal values must be finite")
             signal_values[name] = values
@@ -436,6 +441,8 @@ def load_rcbf(path: str | Path, *, allow_current_snapshot: bool = False):
                 flags=int(flags),
                 n_edges=int(n_edges),
             )
+            if handle.read(1):
+                raise RCBFFormatError("RCBF has unclaimed trailing data")
 
     if not _chain_is_exact(
         boundary_ptr, boundary_idx, face_ptr, face_rows, face_values
@@ -485,4 +492,7 @@ def load_rcbf(path: str | Path, *, allow_current_snapshot: bool = False):
         rex.attach_metadata(1, edge, "rcbf_type_code", int(code))
         if np.all(np.isfinite(chi)):
             rex.attach_metadata(1, edge, "rcbf_chi", chi.tolist())
+    for face, name in enumerate(face_names):
+        if name:
+            rex.attach_metadata(2, face, "rcbf_name", name)
     return rex

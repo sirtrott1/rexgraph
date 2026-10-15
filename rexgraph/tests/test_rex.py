@@ -102,7 +102,7 @@ class TestVertexDerivation:
         assert nV_out == 3
 
     def test_degree_sum(self, triangle_arrays):
-        """Sum of degrees = 2 * nE (handshaking lemma)."""
+        """Sum of vertex degrees = 2 * nE for pairwise relations."""
         src, tgt, nV, nE = triangle_arrays
         nV_out, degree, in_deg, out_deg = _rex.derive_vertex_set(nE, src, tgt)
         assert degree.sum() == 2 * nE

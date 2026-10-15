@@ -6,7 +6,7 @@ and part otherwise: rank(B_1) = n_0 - c is a GRAPH identity, and a relation of a
 touches k vertices while contributing rank one, so reaching a new vertex stops meaning
 reaching a new direction. Only the second is what beta_0 counts.
 
-The arbiter is the Euler characteristic, beta_0: beta_1 + beta_2 = n_0 - n_1 + n_2,
+The arbiter is the Euler characteristic, beta_0 - beta_1 + beta_2 = n_0 - n_1 + n_2,
 which needs no convention to settle. Under the component count it fails on the first
 relation of arity greater than two.
 """
@@ -167,14 +167,11 @@ def test_the_exact_path_declines_a_genuine_float():
 
 
 def test_rank_tower_uses_the_integer_representative_at_arity():
-    """A branching complex must not fall past the exact rank path.
+    """Check exact boundary rank for generated branching relations.
 
-    The stored column carries the share 1/(k-1), which is not an integer, so a rank
-    routine handed the stored B1 falls through to the float path and, above the densify
-    bound, to a truncated SVD that can only confirm a rank below its own k. Measured on a
-    BindingDB slice, 60 wide relations sent rank(B1) from 4673 to a capped 400 while
-    numpy read 4673 throughout. Rank is invariant under column scaling, so the tower is
-    handed `_integer_B1` for the same reason `betti` is.
+    The stored shares are scaled to their integral column representatives
+    before exact elimination. Column scaling preserves rank, so branching
+    arity must not move this query to a truncated numerical rank estimate.
     """
     import numpy as np
     import scipy.sparse as sp

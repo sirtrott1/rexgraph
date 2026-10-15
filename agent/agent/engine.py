@@ -34,6 +34,18 @@ from typing import Any
 import numpy as np
 
 
+def _sidecar_directory(path):
+    """Locate JSON metadata without placing ordinary files in a Zarr group."""
+    import os
+    path = os.path.normpath(path)
+    if os.path.isdir(path):
+        if any(os.path.isfile(os.path.join(path, marker)) for marker in ("zarr.json", ".zgroup")):
+            return path + "_meta"
+        return path
+    base = os.path.splitext(os.path.basename(path))[0]
+    return os.path.join(os.path.dirname(path) or ".", base + "_meta")
+
+
 @dataclass
 class Decision:
     """One decision the engine made, with its rationale."""
@@ -111,9 +123,8 @@ class EngineResult:
             .zarr   Chunked compressed (requires zarr)
             .h5     Single HDF5 file (requires h5py)
 
-        The sidecar files are always JSON, stored alongside the
-        complex in the same directory (.rcbd, .zarr) or as a
-        companion file (.h5).
+        JSON metadata is stored inside an RCBD bundle, in `<path>_meta`
+        beside a Zarr store, or in `<stem>_meta` beside an HDF5 file.
 
         Parameters
 
@@ -133,14 +144,8 @@ class EngineResult:
         # Save the RexGraph
         _io_save(path, self.rex, cache=cache, format=format)
 
-        # Determine sidecar directory
-        if os.path.isdir(path):
-            sidecar_dir = path
-        else:
-            sidecar_dir = os.path.dirname(path) or "."
-            base = os.path.splitext(os.path.basename(path))[0]
-            sidecar_dir = os.path.join(sidecar_dir, base + "_meta")
-            os.makedirs(sidecar_dir, exist_ok=True)
+        sidecar_dir = _sidecar_directory(path)
+        os.makedirs(sidecar_dir, exist_ok=True)
 
         # Save analysis results
         if self.analysis:
@@ -228,14 +233,10 @@ class EngineResult:
 
         rex = _io_load(path, format=format)
 
-        # Find sidecar directory
-        if os.path.isdir(path):
+        sidecar_dir = _sidecar_directory(path)
+        # Older Zarr results placed their JSON metadata inside the store.
+        if not os.path.isdir(sidecar_dir) and os.path.isdir(path):
             sidecar_dir = path
-        else:
-            base = os.path.splitext(os.path.basename(path))[0]
-            sidecar_dir = os.path.join(
-                os.path.dirname(path) or ".", base + "_meta"
-            )
 
         def _load_json(name):
             p = os.path.join(sidecar_dir, name)
@@ -715,7 +716,7 @@ class DecisionEngine:
 
         if kappa and labels:
             # Entities needing review = low coherence OUTLIERS, flagged by a
-            # data adaptive lower Tukey fence (q1: 1.5·IQR), not a fixed magic
+            # data adaptive lower Tukey fence (q1 - 1.5·IQR), not a fixed magic
             # cutoff. Coherence κ is continuous (no integer invariant applies), so
             # the threshold is derived from the κ distribution itself: matching the
             # project's outlier detection convention (schema_complex relation_lint).
@@ -742,14 +743,8 @@ class DecisionEngine:
                     seeds = [int(x) for x in np.argsort(k_arr)[:min(3, n)]]
                 if seeds:
                     ar = rex.agentic_reading(vertices=seeds, t=1.0)
-                    # A BRIDGE IS EXACT, so nothing here is a cutoff. R_eff(e) = 1
-                    # exactly when removing e disconnects its endpoints, and
-                    # `bridge_mask` decides that combinatorially: one walk of the
-                    # 1 skeleton, no solve, measured identical to the solve on every
-                    # complex tried (520/520 and 1315/1315 on GO slices, 1513x and
-                    # 19233x faster). The previous `> 0.9` was guessing at where to cut
-                    # a continuum that has no continuum: the values are 1 on a bridge
-                    # and well below it otherwise.
+                    # Find bridge relations through the stored incidence structure
+                    # without estimating effective resistance by a threshold.
                     from rexgraph.bridges import bridge_mask
                     mask = bridge_mask(rex)
                     n_bridges = int(sum(1 for lb in ar["load_bearing"]

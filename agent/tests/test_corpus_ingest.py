@@ -84,6 +84,20 @@ def test_a_second_run_over_the_same_paths_writes_nothing(tmp_path, corpus):
         assert len(store.history(doc_id_for(p))) == 1, "a resume must not add a version"
 
 
+def test_ingest_uses_spawn_when_forkserver_is_unavailable(monkeypatch, corpus):
+    import multiprocessing
+    monkeypatch.setattr(multiprocessing, "get_all_start_methods", lambda: ["spawn"])
+    original = multiprocessing.get_context
+    def get_context(method):
+        assert method == "spawn"
+        return original(method)
+    monkeypatch.setattr(multiprocessing, "get_context", get_context)
+    store = MemoryStore()
+    result = ingest_corpus(corpus[:1], store, profile=ENGLISH_GUTENBERG, workers=1)
+    assert result["written"] == 1 and result["failed"] == 0
+    assert store.get(doc_id_for(corpus[0])) is not None
+
+
 def test_a_resumed_run_finishes_only_the_remainder(tmp_path, corpus):
     store = FileStore(str(tmp_path / "store"), read_only=False)
     ingest_corpus(corpus[:1], store, profile=ENGLISH_GUTENBERG, workers=2)
@@ -317,10 +331,8 @@ def test_recompress_gives_the_same_answer_on_a_worker_pool(tmp_path, corpus):
     assert a["before"] == b["before"], "the two arms must start from the same bytes"
     # NOT byte equality of the output: safetensors writes its `__metadata__` map from a
     # Rust HashMap, whose iteration order is randomly seeded per process, so the three
-    # keys land in a different order in each writer. Measured over six writes of one
-    # complex: tensor entries kept a single order, `__metadata__` took two. The content
-    # is identical and the sizes land within a byte; the FILE is simply not reproducible,
-    # which is worth knowing before anyone tries to dedupe blobs by hashing them.
+    # metadata key order can vary across writers. Compare decoded content
+    # and bounded size differences rather than requiring identical output bytes.
     assert abs(a["after"] - b["after"]) <= 8 * a["rewritten"]
     for name in ("serial", "pool"):
         store = FileStore(str(tmp_path / name), read_only=False)

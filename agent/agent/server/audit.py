@@ -1,38 +1,26 @@
-"""
-agent.server.audit: an append only trail where an edited entry stops verifying.
+"""Append audit entries with a hash chain and optional signed anchors.
 
-A log that records what happened answers "what happened" only if nothing can quietly
-edit it afterwards. A plain journal cannot tell a line that was always there from one
-written later, so the interesting case, someone covering a change, is the case it
-misses.
+Each entry records the actor, workspace, operation, affected resources and
+result, together with the digest of the previous entry. Payload contents
+are excluded. Verification detects changes that leave later hashes
+inconsistent. An actor who can rewrite the file and recompute the remaining
+hashes can create another valid chain, so the journal also supports anchors.
 
-Each entry carries the digest of the entry before it. The digests form a chain, so
-altering entry k changes its digest, which is recorded in k+1, and every entry after it
-disagrees. Removing an entry breaks the same link. An attacker who can write the file
-can still rewrite the whole tail and recompute every digest, and `verify` then reports a
-clean chain, so the chain alone cannot detect that.
+An anchor records the journal length and head digest in a separate sink.
+verify_against_anchors compares the journal with those earlier records.
+Set REXGRAPH_AUDIT_ANCHORS to a sink the service cannot rewrite and
+REXGRAPH_ANCHOR_KEY to a signing key reference. Anchors stored beside a
+writable journal do not independently protect against a complete rewrite.
+File permissions control writes; hashes and anchors support later checks.
 
-`anchor` is the other half. It witnesses how long the trail is and what its head is into
-a separate sink, so a rewrite has to also change a record the rewriter does not hold, and
-`verify_against_anchors` reports the oldest anchor the trail stopped agreeing with. The
-sink is the whole point: anchors beside the journal are rewritten with it. Sign them by
-naming a key reference in REXGRAPH_ANCHOR_KEY, and put them somewhere this service
-cannot write, via REXGRAPH_AUDIT_ANCHORS.
-
-That is tamper EVIDENCE, not tamper prevention, and the distinction is the point. The
-trail proves a record was not edited after it was written; keeping the file writable
-only by the service is what stops the write in the first place.
-
-What is recorded is who, what, which workspace, what it touched, and what came back,
-never the content itself. A trail holding payloads is a second copy of the data with
-different access rules, which is a leak with an audit trail's name on it.
-
-Journal: $REXGRAPH_AUDIT_JOURNAL, else $REXGRAPH_CONFIG_DIR/audit.jsonl, else
-~/.config/rexgraph/audit.jsonl. One JSON object per line, opened O_APPEND so
-concurrent writers interleave whole lines rather than corrupting each other.
+The journal uses REXGRAPH_AUDIT_JOURNAL when set, otherwise audit.jsonl
+under REXGRAPH_CONFIG_DIR or ~/.config/rexgraph. Entries are serialized as
+JSON lines and appended with O_APPEND.
 """
 
 from __future__ import annotations
+
+from agent.data_paths import config_root
 
 import contextlib
 import hashlib
@@ -57,10 +45,8 @@ _lock = threading.Lock()
 def journal_path() -> Path:
     explicit = os.environ.get("REXGRAPH_AUDIT_JOURNAL")
     if explicit:
-        return Path(explicit)
-    base = Path(os.environ.get("REXGRAPH_CONFIG_DIR",
-                               Path.home() / ".config" / "rexgraph"))
-    return base / "audit.jsonl"
+        return Path(explicit).expanduser()
+    return config_root() / "audit.jsonl"
 
 
 def _line(obj: dict) -> bytes:
@@ -235,17 +221,15 @@ ANCHOR_KEY_REF_ENV = "REXGRAPH_ANCHOR_KEY"
 
 
 def anchor_path() -> Path:
-    """Where anchors are appended.
+    """Return the configured anchor sink or a path beside the journal.
 
-    The default sits beside the journal, which is convenient and weak: whoever can
-    rewrite the trail can rewrite anchors in the same directory. Point
-    REXGRAPH_AUDIT_ANCHORS at a sink this service cannot rewrite, another host, an
-    append only mount, object storage under a retention lock, or an anchor proves
-    nothing the journal does not already prove on its own.
+    REXGRAPH_AUDIT_ANCHORS overrides the default audit.anchors.jsonl path.
+    For independent detection of journal rewrites, configure a sink that
+    the service cannot rewrite.
     """
     explicit = os.environ.get("REXGRAPH_AUDIT_ANCHORS")
     if explicit:
-        return Path(explicit)
+        return Path(explicit).expanduser()
     return journal_path().with_name("audit.anchors.jsonl")
 
 
@@ -262,17 +246,14 @@ def _anchor_mac(body: dict, key: str) -> str:
 
 
 def anchor(path: Path | None = None, sink: Path | None = None) -> dict:
-    """Witness how long the trail is and what its head is, so a later rewrite shows.
+    """Record the verified journal length and head digest in an anchor.
 
-    The chain proves no entry was edited in place. It cannot prove the tail was not
-    rewritten wholesale, because whoever rewrites it recomputes every digest from the
-    point they changed. An anchor is the missing half: a statement kept somewhere the
-    service cannot reach about where the trail stood at one moment, so rewriting history
-    now also requires changing a record the rewriter does not hold.
+    The anchor can later detect a journal that no longer contains the
+    recorded prefix. Independent storage is required to detect a rewrite
+    by an actor who can change both the journal and its local anchors.
 
-    Signing is what stops an anchor from being rewritten alongside the journal when the
-    sink turns out to be reachable after all. Unsigned anchors still catch an accident
-    and a careless attacker, and the return value says which kind was written.
+    If REXGRAPH_ANCHOR_KEY resolves to a key, the anchor includes an HMAC.
+    The returned signed field records whether a key was used.
     """
     p = path or journal_path()
     state = verify(p)

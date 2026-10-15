@@ -1,8 +1,7 @@
-"""
-agent.cli.config: paths, platform detection, config persistence.
+"""Platform detection, persistent configuration and OCR server process records.
 
-Config: ~/.config/rexgraph/config.json (XDG on Linux, APPDATA on Windows).
-Cache:  ~/.cache/rexgraph/models/ (model weights, PID file).
+Directory defaults and environment overrides are resolved by ``agent.data_paths``.
+Model downloads and server process records use the same cache root as analysis.
 """
 
 from __future__ import annotations
@@ -11,33 +10,30 @@ import json
 import os
 import platform
 import sys
-from dataclasses import asdict, dataclass, field
+import tempfile
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
+
+from agent.data_paths import cache_root, config_root, models_root
 
 # Paths
 
 def _xdg_config_home() -> Path:
-    """XDG config directory (Linux/macOS) or APPDATA (Windows)."""
-    if platform.system() == "Windows":
-        base = os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")
-        return Path(base) / "rexgraph"
-    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "rexgraph"
+    """Return the configured application configuration directory."""
+    return config_root()
 
 
 def _xdg_cache_home() -> Path:
-    """XDG cache directory (Linux/macOS) or LOCALAPPDATA (Windows)."""
-    if platform.system() == "Windows":
-        base = os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")
-        return Path(base) / "rexgraph" / "cache"
-    return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "rexgraph"
+    """Return the configured application cache directory."""
+    return cache_root()
 
 
 CONFIG_DIR = _xdg_config_home()
 CACHE_DIR = _xdg_cache_home()
 CONFIG_FILE = CONFIG_DIR / "config.json"
 PID_FILE = CACHE_DIR / "server.pid"
-MODELS_DIR = CACHE_DIR / "models"
+MODELS_DIR = models_root()
 
 
 # Platform detection
@@ -261,10 +257,6 @@ def _detect_gpu():
             except Exception:
                 pass
 
-        # Method 5: 7900 XT is 24GB: if we detect it by name
-        if vram_mb == 0 and "7900" in gpu_name:
-            vram_mb = 24576  # 24GB
-
     # Apple Silicon
     elif platform.system() == "Darwin" and platform.machine() == "arm64":
         gpu_type = "apple"
@@ -323,7 +315,7 @@ class RexGraphConfig:
 
 
 def load_config() -> RexGraphConfig:
-    """Load the config file, or return defaults."""
+    """Load valid configuration fields, retaining defaults for invalid values."""
     cfg = RexGraphConfig(
         cache_dir=str(CACHE_DIR),
         models_dir=str(MODELS_DIR),
@@ -331,57 +323,95 @@ def load_config() -> RexGraphConfig:
 
     if CONFIG_FILE.exists():
         try:
-            with open(CONFIG_FILE) as f:
+            with open(CONFIG_FILE, encoding="utf-8") as f:
                 data = json.load(f)
-            for key, val in data.items():
-                if hasattr(cfg, key):
+            if isinstance(data, dict):
+                for item in fields(cfg):
+                    key = item.name
+                    val = data.get(key, getattr(cfg, key))
+                    default = getattr(cfg, key)
+                    if type(val) is not type(default):
+                        continue
+                    if key in {"cache_dir", "models_dir"} and not val:
+                        continue
+                    if isinstance(val, dict) and not all(
+                            isinstance(k, str) and isinstance(v, str) for k, v in val.items()):
+                        continue
+                    if key.endswith("_port") and not 1 <= val <= 65535:
+                        continue
                     setattr(cfg, key, val)
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError, UnicodeError):
             pass
 
+    # Explicit directory settings take precedence over paths saved by an earlier setup.
+    if os.environ.get("REXGRAPH_CACHE_DIR") or os.environ.get("XDG_CACHE_HOME"):
+        cfg.cache_dir = str(cache_root())
+    if (os.environ.get("REXGRAPH_MODELS_DIR") or os.environ.get("REXGRAPH_CACHE_DIR")
+            or os.environ.get("XDG_CACHE_HOME")):
+        cfg.models_dir = str(models_root())
     return cfg
 
 
+def _write_json(path: Path, data: dict) -> None:
+    """Replace a JSON file only after the complete contents have been written."""
+    payload = json.dumps(data, indent=2).encode("utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, "wb") as output:
+            output.write(payload)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def save_config(cfg: RexGraphConfig) -> None:
-    """Write the config file."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(asdict(cfg), f, indent=2)
+    """Atomically replace the configuration file."""
+    _write_json(CONFIG_FILE, asdict(cfg))
 
 
 # PID file management
 
 def save_pid(pid: int, port: int, backend: str = "") -> None:
     """Write server PID and port to the PID file."""
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
     data = {"pid": pid, "port": port, "backend": backend}
-    with open(PID_FILE, "w") as f:
-        json.dump(data, f)
+    if not _valid_pid_data(data):
+        raise ValueError("server records require a positive PID, a valid port and a string backend")
+    _write_json(PID_FILE, data)
+
+
+def _valid_pid_data(data) -> bool:
+    return (isinstance(data, dict) and type(data.get("pid")) is int and data["pid"] > 0
+            and type(data.get("port")) is int and 1 <= data["port"] <= 65535
+            and isinstance(data.get("backend", ""), str))
 
 
 def read_pid() -> dict[str, Any] | None:
     """Read the PID file. Returns None if missing or unparseable."""
-    if not PID_FILE.exists():
-        return None
     try:
-        with open(PID_FILE) as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
+        with open(PID_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if _valid_pid_data(data) else None
+    except (json.JSONDecodeError, OSError, UnicodeError):
         return None
 
 
 def clear_pid() -> None:
     """Remove the PID file."""
-    if PID_FILE.exists():
-        PID_FILE.unlink(missing_ok=True)
+    PID_FILE.unlink(missing_ok=True)
 
 
 def process_alive(pid: int) -> bool:
     """Check whether a process is still running."""
+    if type(pid) is not int or pid <= 0:
+        return False
     try:
         os.kill(pid, 0)
         return True
-    except (OSError, ProcessLookupError):
+    except (OSError, OverflowError):
         return False
 
 

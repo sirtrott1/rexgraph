@@ -3,6 +3,7 @@ from copy import deepcopy
 from dataclasses import replace
 from fractions import Fraction as Q
 from itertools import combinations
+from importlib.util import find_spec
 
 import numpy as np
 import pytest
@@ -33,7 +34,9 @@ def state(version=0):
 def test_apply_preserves_full_canonical_state_without_aliasing():
     prior, target = state(), state(1)
     before = object_digest(prior)
-    package = mutation_from_bytes(mutation_to_bytes(prepare_mutation(prior, target, tx_time=1)))
+    package = prepare_mutation(prior, target, tx_time=1)
+    if find_spec("safetensors") is not None:
+        package = mutation_from_bytes(mutation_to_bytes(package))
     saved = deepcopy(package)
     result = apply_mutation(package, previous=prior)
     assert object_digest(result) == object_digest(target)
@@ -75,6 +78,8 @@ def test_apply_rejects_invalid_state_and_options(failure):
 
 @pytest.mark.parametrize("count", [0, 1, 2])
 def test_replication_full_state_and_empty_stream_ownership(count):
+    if count:
+        pytest.importorskip("safetensors", reason="mutation byte encoding requires rexgraph[io]")
     prior = state()
     current, parent, packages = prior, "checkpoint", []
     for step in range(count):

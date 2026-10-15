@@ -21,8 +21,7 @@ so a rational weight keeps the channels rational. It is sqrt(w), which appears i
 normalized G and nowhere here, that forces a float.
 
 The expected values below come from an independent reference calculation. A separate
-oracle is the point: agreeing with our own reimplementation of the formula would prove
-nothing.
+oracle avoids checking an implementation against its own output.
 """
 
 import numpy as np

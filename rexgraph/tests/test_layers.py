@@ -29,12 +29,12 @@ class _Net(torch.nn.Module):
         return self.head(self.b2(self.b1(self.emb(X), L), L))
 
 
-def test_blocks_compose_and_train_with_hodgeadam():
+def test_blocks_compose_and_train_with_adam():
     L, nV = _L()
     net = _Net()
     X = torch.randn(nV, 4)
     y = torch.randint(0, 3, (nV,))
-    opt = R.optim.HodgeAdam(net.parameters(), lr=0.05)   # back compat path; demoted off nn top level
+    opt = R.build_optimizer(net.parameters(), method="adam", lr=0.05)
     first = last = None
     for i in range(30):
         opt.zero_grad()

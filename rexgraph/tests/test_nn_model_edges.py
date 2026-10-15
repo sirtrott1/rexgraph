@@ -105,7 +105,7 @@ def test_float32_cochain_trains_and_roundtrips_without_dtype_drift(placement, tm
     loaded.fit([0, 1], [True, True], epochs=1)
 
 
-@pytest.mark.parametrize("method", ["greens", "hodge", "hodgesgd"])
+@pytest.mark.parametrize("method", ["greens", "adam", "adamw", "sgd"])
 def test_custom_optimizer_closure_runs_with_gradients_enabled(method):
     torch = pytest.importorskip("torch")
     from rexgraph.nn.optim import build_optimizer

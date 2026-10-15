@@ -32,9 +32,8 @@ def _participation_entries(source, weights):
 class ParticipationWalk(RexOperator):
     """The relation mediated participation walk U De^-1 U^T Dv^-1 through U = abs(B1) W.
 
-    This is the hypergraph random walk of Zhou, Huang and Schoelkopf read on the primary
-    tensor: an imported walk, named for what it computes. The relational ranking that
-    replaces PageRank on it is `rexgraph.resolvent_rank`.
+    The walk uses primary relation incidence and interprets relation weights as
+    intensities. `rexgraph.resolvent_rank` supplies grade specific Hodge responses.
     """
 
     def __init__(self, source, grade=0):

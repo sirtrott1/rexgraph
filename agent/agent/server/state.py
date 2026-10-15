@@ -8,9 +8,9 @@ Sessions are created on upload and persist across server restarts.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
+from agent.data_paths import sessions_root
 from agent.session import Session, create_session
 from agent.session import list_sessions as _list_sessions
 
@@ -18,16 +18,11 @@ from agent.session import list_sessions as _list_sessions
 class SessionStore:
     """Manages all active sessions for the server."""
 
-    #: where sessions live unless told otherwise. Overridable by REXGRAPH_SESSION_DIR
-    #: so a test can hold sessions somewhere of its own: the suite had written 1065 of
-    #: them into a real install in a day, 397 from one fixture, which buried the user's
-    #: own work in a list it shared.
+    #: Legacy location, used only when it exists and no directory setting overrides it.
     DEFAULT_DIR = "~/.rexgraph-agent/sessions"
 
     def __init__(self, storage_dir: str | None = None):
-        storage_dir = storage_dir or os.environ.get(
-            "REXGRAPH_SESSION_DIR", self.DEFAULT_DIR)
-        self.storage_dir = str(Path(storage_dir).expanduser())
+        self.storage_dir = str(Path(storage_dir).expanduser() if storage_dir else sessions_root())
         Path(self.storage_dir).mkdir(parents=True, exist_ok=True)
         self._active: dict[str, Session] = {}
 

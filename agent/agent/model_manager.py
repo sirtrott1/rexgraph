@@ -16,6 +16,9 @@ Usage:
 
 from __future__ import annotations
 
+from agent.data_paths import huggingface_cache_root
+from agent.model_files import cached_model_path, has_model_weights
+
 import contextlib
 import logging
 import os
@@ -323,19 +326,16 @@ class ModelManager:
             from agent.cli.config import MODELS_DIR
             dirname = model_id.replace("/", "--")
             rex_path = MODELS_DIR / dirname
-            if rex_path.exists() and any(rex_path.iterdir()):
+            if has_model_weights(rex_path):
                 return str(rex_path)
         except Exception:
             pass
 
         # 3. HF cache
-        hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
-        dirname = model_id.replace("/", "--")
-        hf_dir = hf_cache / ("models--" + dirname)
-        if hf_dir.exists():
-            snapshots = hf_dir / "snapshots"
-            if snapshots.exists() and any(snapshots.iterdir()):
-                return model_id  # transformers resolves from HF cache automatically
+        hf_cache = huggingface_cache_root()
+        snapshot = cached_model_path(model_id, hf_cache)
+        if snapshot is not None:
+            return str(snapshot)
 
         # 4. Check if model_id is itself a path
         if os.path.isdir(model_id):
@@ -349,7 +349,7 @@ class ModelManager:
         """Scan for all known, downloaded, and custom path models."""
         from agent.cli.config import MODELS_DIR
 
-        hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
+        hf_cache = huggingface_cache_root()
 
         for model_id, info in KNOWN_MODELS.items():
             entry = ModelEntry(
@@ -372,7 +372,7 @@ class ModelManager:
             if not entry.downloaded:
                 dirname = model_id.replace("/", "--")
                 rex_path = MODELS_DIR / dirname
-                if rex_path.exists() and any(rex_path.iterdir()):
+                if has_model_weights(rex_path):
                     entry.downloaded = True
                     entry.local_path = str(rex_path)
 
@@ -380,8 +380,8 @@ class ModelManager:
             if not entry.downloaded:
                 dirname = model_id.replace("/", "--")
                 hf_dir = hf_cache / ("models--" + dirname)
-                snapshots = hf_dir / "snapshots"
-                if snapshots.exists() and any(snapshots.iterdir()):
+                snapshot = cached_model_path(model_id, hf_cache)
+                if snapshot is not None:
                     entry.downloaded = True
                     entry.hf_cache_path = str(hf_dir)
 

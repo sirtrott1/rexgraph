@@ -5,7 +5,7 @@ Save and test connections to any SQL database (or MongoDB), browse a live
 schema, and import it into the RCDB as a diagnosed relational complex.
 
 Security note: connection URIs may contain credentials. They are stored
-server side under the config dir and are ALWAYS masked in responses. A
+server side under the config dir and are always masked in responses. A
 production deployment should back this with a real secrets manager
 (Vault/KMS); the storage here is behind a single interface so that swap
 is a drop in.

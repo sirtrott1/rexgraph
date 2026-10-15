@@ -1,23 +1,10 @@
-"""The cache layout every array backend writes, and the code that walks it.
+"""Shared array cache layout for HDF5 and Zarr writers.
 
-`RexHDF5Format` and `RexZarrFormat` held byte identical copies of this: the same
-thirteen cache groups and the same thirteen methods for writing them, 76 statements
-duplicated across two files. Two copies of one rule is how a fix lands in one of them,
-which is the whole reason this is one file now.
-
-What is per backend stays per backend. These methods decide WHAT is written
-and in what shape; the subclass decides HOW bytes reach the store, through the seam:
-
-    _store(group, name, arr)          write one array
-    _store_chunked(group, name, arr)  the same, for arrays past `large_threshold`
-    _load(group, name)                read one array back
-    _has(group, name)                 is it there
-    _get_or_create(group, name)       a subgroup, made if absent
-    large_threshold                   nE past which chunking is used
-
-plus four writers whose payloads differ by backend and so are NOT here:
-`_write_spectral_cache`, `_write_faces_cache`, `_write_field_cache`,
-`_write_standard_metrics_cache`, and `_write_temporal_cache`.
+The mixin selects derived properties and organizes their arrays and attributes
+into declared cache groups. Backends provide array storage, chunking, reads and
+group creation. Spectral, face, field, standard metric and temporal writers
+remain backend specific where their payloads require different storage methods.
+Canonical state serialization remains independent of these optional caches.
 """
 
 from __future__ import annotations

@@ -76,7 +76,7 @@ def test_guard_keeps_the_plural_when_fixing():
     assert found
     assert "relational complexes" in fixed
     assert "chain complexes" not in fixed
-    assert "chain condition" in fixed          # the axiom keeps its name
+    assert "chain condition" in fixed          # the boundary check keeps its name
 
 
 def test_guard_leaves_the_chain_condition_alone():

@@ -171,7 +171,7 @@ def shannon_entropy(np.ndarray[np.complex128_t, ndim=1] psi):
 
 
 def renyi_entropy(np.ndarray[f64, ndim=1] probs, double alpha):
-    """Renyi entropy H_alpha = log2(sum p_i^alpha) / (1: alpha)."""
+    """Renyi entropy H_alpha = log2(sum p_i^alpha) / (1 - alpha)."""
     cdef f64[::1] p = probs
     cdef Py_ssize_t n = probs.shape[0], i
     cdef f64 s = 0.0, pi
@@ -967,7 +967,7 @@ def fidelity_mixed(np.ndarray[np.complex128_t, ndim=2] rho,
     return np.real(np.trace(inner)) ** 2
 
 
-# RCF dynamics operators (from DRCT/I-SPY2 case studies)
+# Graded state projection and dynamics operators
 
 def amplitude_graded_projection(B1, B2,
                                  np.ndarray[f64, ndim=1] amplitudes,

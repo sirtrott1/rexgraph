@@ -8,6 +8,7 @@ Where several senses tie, `disambiguate` returns all of them.
 from __future__ import annotations
 
 import numpy as np
+from pathlib import Path
 
 __all__ = ["SenseModel", "extents"]
 
@@ -35,8 +36,8 @@ def extents(synsets: dict, relations: dict, senses, *, hops: int = 1) -> dict:
 class SenseModel:
     """The candidate senses of one word, and which lemmas each admits.
 
-    Built from any sense inventory shaped as `{sense: [lemma, ...]}` plus a neighbour map,
-    so this is not tied to WordNet; WordNet is only what it is VALIDATED against.
+    Accepts an inventory shaped as `{sense: [lemma, ...]}` and a neighbour map.
+    WordNet records can be loaded through `inventory`.
     """
 
     def __init__(self, word: str, senses, extent: dict):
@@ -82,33 +83,39 @@ class SenseModel:
 
 # the query path
 _INVENTORY = None
+_INVENTORY_KEY = None
+_INVENTORY_RAW = None
 
 
 def inventory(path=None):
-    """WordNet as `(synsets, by_lemma, relations)`, from the ONE loader that already has it.
+    """Return `(synsets, by_lemma, relations)` for the selected WordNet source.
 
-    `LexicalAnswerer` loads and caches this file for the answerer stack (161,705 entries,
-    about 2.8 s). Loading it a second time here bought nothing and cost that twice, so
-    this reads the answerer's `_wn` and only falls back to its own load when no answerer is
-    registered (a caller using the sense layer standalone).
+    Without a path, reuse the registered lexical answerer's loaded records.
+    Explicit files are cached by resolved path, size and modification time.
+    Changing sources replaces the cached inventory.
     """
-    global _INVENTORY
-    if _INVENTORY is None:
-        raw = None
-        if path is None:
-            try:
-                from agent.answerers import _default_registry
-                lex = _default_registry().get("lexical")
-                if lex is not None:
-                    lex[0]._lex()                      # its own cache, populated once
-                    raw = lex[0]._wn
-            except Exception:
-                raw = None
+    global _INVENTORY, _INVENTORY_KEY, _INVENTORY_RAW
+    raw = None
+    if path is None:
+        try:
+            from agent.answerers import _default_registry
+            lex = _default_registry().get("lexical")
+            if lex is not None:
+                lex[0]._lex()
+                raw = lex[0]._wn
+        except Exception:
+            raw = None
+    if raw is None:
+        from agent.answerers.lexical import DEFAULT_WORDNET
+        source = Path(path or DEFAULT_WORDNET).expanduser().resolve()
+        stat = source.stat()
+        key = (str(source), stat.st_size, stat.st_mtime_ns)
+    else:
+        key = ("loaded", id(raw))
+    if _INVENTORY is None or key != _INVENTORY_KEY:
         if raw is None:
             from agent.adapters.lexical import load_wordnet
-            from agent.answerers.lexical import DEFAULT_WORDNET
-            raw = load_wordnet(path or DEFAULT_WORDNET)
-
+            raw = load_wordnet(source)
         lemma = {e: str(w).lower() for e, w in (raw.get("lemma_of") or {}).items()}
         syn = {}
         for sid, members in (raw.get("synsets") or {}).items():
@@ -124,6 +131,9 @@ def inventory(path=None):
             if src in syn and tgt in syn:
                 rel.setdefault(src, []).append(tgt)
         _INVENTORY = (syn, by_lemma, rel)
+        _INVENTORY_KEY = key
+        # Retain the loaded object so its identity cannot be reused by a new source.
+        _INVENTORY_RAW = raw
     return _INVENTORY
 
 

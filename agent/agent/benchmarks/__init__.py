@@ -1,12 +1,10 @@
-"""agent.benchmarks: optimizer and model benchmarks for the rexgraph.nn substrate.
+"""Benchmark registry and execution for supported training optimizers.
 
-The Track 2 credibility harness: any two registered optimizers against each other on recognized
-tasks, with a fair, lr tuned, verdict producing A/B. `benchmark_ab` defaults to the ("hodge",
-"adam") pair because those are the two arms the harness was built to settle; a single
-`run_benchmark` with no optimizer named takes the routing default. Registered benchmarks: ill cond
-(controlled ill conditioning, the diagnostic that tests the per Hodge component preconditioning
-claim), matrix completion, bilinear game (a purely rotational field), and
-mnist/fashion-mnist/cifar10 (HuggingFace datasets).
+Registered tasks include generated matrix regression and completion,
+plus MNIST, Fashion MNIST and CIFAR10 classification. run_benchmark
+returns training and evaluation metrics for a named task. benchmark_ab
+compares optimizers using the same task inputs; its defaults are Adam
+and AdamW. External image datasets are loaded only for those tasks.
 """
 from .optimizers import (  # noqa: F401
     benchmark_ab,

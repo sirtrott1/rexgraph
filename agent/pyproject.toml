@@ -1,28 +1,6 @@
-# rexgraph-agent: orchestration layer for the RCF ecosystem.
-#
-# The agent auto detects input types (text, CSV, edge list, feature matrix),
-# dispatches to the right domain library, and provides a unified interface
-# for running the full RCF pipeline. Also houses the FastAPI server, the
-# web frontend, runtime visualization, and integrations with LangChain,
-# HuggingFace, LangGraph, vLLM, and TrustGraph.
-#
-# Pure Python. Depends on rexgraph (compiled).
-# Integration specific deps are optional extras so users only
-# install what they need.
-#
-# Install locally from the monorepo. The core builds from the REPO ROOT, not from
-# ./rexgraph, which is a meson subdir include with no project() call. The agent requires
-# rexgraph-rcdb, so the store is installed before it or pip goes looking on an index
-# where it is not published:
-#   RCDB="./rcdb[sql,objectstore,crypto]"
-#   pip install . "$RCDB" ./agent                               # baseline
-#   pip install . "$RCDB" "./agent[server]"                     # + FastAPI UI
-#   pip install . "$RCDB" "./agent[ocr]"                        # + OCR backends
-#   pip install . "$RCDB" "./agent[all]"                        # everything
-#
-# Or, once published:
-#   pip install rexgraph-agent                                  # baseline
-#   pip install rexgraph-agent[server,ocr]                      # common pick
+# Agent package configuration.
+# make install installs Core, RCDB, RCQL, System and the standard Agent profile.
+# Additional dependencies are declared as optional extras below.
 
 [build-system]
 requires = ["setuptools>=77.0.3", "wheel"]
@@ -73,14 +51,25 @@ dependencies = [
     "numpy>=1.24",
     # Agent's existing pipeline and graph views use SciPy directly. Core and
     # RCDB no longer provide this dependency transitively.
-    "scipy>=1.10",
-    "pandas>=2.0",
+    "scipy>=1.13",
+    "pandas>=2.2.2",
 ]
 
 [project.optional-dependencies]
 # Optional molecular syntax and substructure interpretation.
 molecules = [
-    "rdkit>=2025.9",
+    "rexgraph[molecules]>=1.3.1",
+]
+
+# Columnar queries and DataFrame views of stored structural signatures.
+analytics = ["duckdb>=1.0", "polars>=1.0"]
+
+# Optional numerical baselines over features read from RCDB records.
+baselines = [
+    "scikit-learn>=1.4",
+    "lightgbm>=4.0",
+    "xgboost-cpu>=2.1; sys_platform == 'linux' or sys_platform == 'win32'",
+    "xgboost>=2.1; sys_platform == 'darwin'",
 ]
 
 # Typed queries over live agent values. agent/agent/rcql_runtime.py binds sources and
@@ -222,7 +211,7 @@ vllm = [
 # TrustGraph knowledge graph integration
 trustgraph = [
     "trustgraph-base>=2.4",
-    "pyarrow>=12.0",
+    "pyarrow>=16.0",
     "aiohttp>=3.9",
 ]
 
@@ -266,6 +255,7 @@ standard = [
 # The torch ML stack: LoRA fine tuning, HuggingFace model analysis, training
 # export. Heavy: pulls torch, transformers, peft, datasets.
 ml = [
+    "rexgraph[nn]>=1.3.1",
     "rexgraph-agent[training,finetune,huggingface]",
 ]
 
@@ -278,7 +268,14 @@ integrations = [
 # the torch ML stack + cloud OCR + SSO. Large; prefer a narrower profile unless
 # you need all of it. Excludes GPU only extras (vllm, ocr got, cuda).
 all = [
-    "rexgraph-agent[standard,integrations,warehouse,objectstore-cloud,ml,ocr-paddle,mistral,oidc]",
+    "rexgraph-agent[standard,integrations,warehouse,objectstore-cloud,ml,molecules,analytics,baselines,ocr-paddle,mistral,oidc]",
+]
+
+# Dependencies for the optional CPU feature tests. GPU runtimes and external
+# datasets remain separate requirements reported by the test runner.
+test-full = [
+    "rexgraph-agent[standard,dev,ml,molecules,analytics,baselines,langchain,langgraph]",
+    "rexgraph[dev,tf]>=1.3.1",
 ]
 
 [project.scripts]

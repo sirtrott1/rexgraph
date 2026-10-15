@@ -1,6 +1,7 @@
-"""Check batch allocation against fixed solo and contended worker rates.
+"""Check allocation and makespan with fabricated worker throughput fixtures.
 
-The unified and discrete fixtures cover contention losses and throughput gains.
+The rates are chosen to exercise contention losses, throughput gains and
+an interior allocation maximum. They do not describe a physical machine.
 """
 import pytest
 from agent.device_routing import (
@@ -11,18 +12,19 @@ from agent.device_routing import (
     plan_split,
 )
 
-UNIFIED = [DeviceRate("igpu", "igpu", 46.98, 31.94),
-           DeviceRate("cpu", "cpu", 21.41, 8.23)]
-DISCRETE = [DeviceRate("gpu", "gpu:0", 60.0, 57.0),
-            DeviceRate("cpu", "cpu", 20.0, 18.0)]
+UNIFIED = [DeviceRate("igpu", "igpu", 40.0, 20.0),
+           DeviceRate("cpu", "cpu", 20.0, 5.0)]
+DISCRETE = [DeviceRate("gpu", "gpu:0", 50.0, 45.0),
+            DeviceRate("cpu", "cpu", 10.0, 8.0)]
 
 
 def test_co_scheduling_is_refused_when_it_loses():
-    """The fixed contended rates sum to 40.17, below the solo rate of 46.98."""
+    """The synthetic contended rates sum to 25, below the solo rate of 40.
+    """
     worth, agg, best = co_scheduling_pays(UNIFIED)
     assert worth is False
-    assert agg == pytest.approx(40.17, abs=0.01)
-    assert best == pytest.approx(46.98, abs=0.01)
+    assert agg == pytest.approx(25.0)
+    assert best == pytest.approx(40.0)
 
 
 def test_co_scheduling_is_taken_when_it_wins():
@@ -57,28 +59,31 @@ def test_an_unknown_policy_is_refused():
 
 
 def test_the_makespan_is_piecewise_because_contention_ends():
-    """Charging the contended rate for the whole run predicted 116.7s for an even split
-    that actually took 61.0s: the iGPU finishes early and the CPU runs the tail alone at
-    more than twice its contended rate."""
+    """Check the two phases of the synthetic even split.
+
+    GPU work finishes after 48 seconds at its contended rate. The CPU has
+    completed 240 units then and takes another 36 seconds for the remaining
+    720 units at its solo rate. Total expected time is 84 seconds.
+    """
     even = {"igpu": 8, "cpu": 8}
     got = expected_makespan(UNIFIED, even, 120)
-    assert 55.0 < got < 70.0, got                     # measured 61.01
-    flat = 8 * 120 / 8.23                             # the old, wrong, whole run form
+    assert got == pytest.approx(84.0)
+    flat = 8 * 120 / 5.0                             # the old, wrong, whole run form
     assert got < flat - 20.0, (got, flat)
 
 
-def test_the_makespan_matches_what_was_measured():
+def test_makespan_matches_the_analytical_fixture():
     """Check the expected makespan for the fixed solo and contended rate fixtures."""
     assert expected_makespan(UNIFIED, {"igpu": 16, "cpu": 0}, 120) == pytest.approx(
-        39.40, rel=0.10)
+        48.0)
     assert expected_makespan(UNIFIED, {"igpu": 8, "cpu": 8}, 120) == pytest.approx(
-        61.01, rel=0.10)
+        84.0)
 
 
 def test_a_lone_bee_is_charged_its_solo_rate():
     """Nothing else is running, so there is nothing to contend with."""
     solo = expected_makespan(UNIFIED, {"igpu": 10, "cpu": 0}, 120)
-    assert solo == pytest.approx(10 * 120 / 46.98, rel=1e-6)
+    assert solo == pytest.approx(10 * 120 / 40.0, rel=1e-6)
 
 
 def test_a_bee_with_no_measured_contention_falls_back_to_solo():
@@ -96,13 +101,12 @@ def test_no_bees_and_no_work_are_both_empty():
 #### the partition is the decision, and it has to be searched
 from agent.device_routing import Partition, best_partition  # noqa: E402
 
-# the measured sweep on this laptop: CPU worker thread count against both rates,
-# iGPU alone sustained 44.16 tok/s
-SWEEP = [Partition(2, {"igpu": 42.72, "cpu": 4.50}),
-         Partition(4, {"igpu": 40.88, "cpu": 6.07}),
-         Partition(8, {"igpu": 38.85, "cpu": 9.43}),
-         Partition(16, {"igpu": 32.63, "cpu": 10.50})]
-SOLO_BEST = 44.16
+# Synthetic allocation table with an interior maximum.
+SWEEP = [Partition(2, {"igpu": 36.0, "cpu": 2.0}),
+         Partition(4, {"igpu": 35.0, "cpu": 5.0}),
+         Partition(8, {"igpu": 32.0, "cpu": 12.0}),
+         Partition(16, {"igpu": 24.0, "cpu": 16.0})]
+SOLO_BEST = 40.0
 
 
 def test_the_optimum_is_interior():
@@ -125,19 +129,19 @@ def test_more_cpu_threads_can_mean_more_cpu_and_less_machine():
 
 
 def test_co_scheduling_pays_at_the_right_partition():
-    """1.09x at eight threads. The earlier conclusion that it never pays came from
-    measuring the sixteen thread point and nothing else."""
+    """The synthetic interior allocation has total rate 44 against solo rate 40.
+    """
     worth, agg, best = co_scheduling_pays(SWEEP, SOLO_BEST)
     assert worth is True
-    assert agg == pytest.approx(48.28, abs=0.01)
-    assert agg / best == pytest.approx(1.09, abs=0.01)
+    assert agg == pytest.approx(44.0)
+    assert agg / best == pytest.approx(1.1)
 
 
 def test_one_bad_allocation_does_not_get_to_decide():
     """Handed only the worst point, the flat rate form says no, correctly about THAT
     allocation, and wrongly about the machine. The sweep is what makes it an answer."""
-    worst = [DeviceRate("igpu", "igpu", 44.16, 32.63),
-             DeviceRate("cpu", "cpu", 21.41, 10.50)]
+    worst = [DeviceRate("igpu", "igpu", 40.0, 24.0),
+             DeviceRate("cpu", "cpu", 20.0, 16.0)]
     assert co_scheduling_pays(worst)[0] is False
     assert co_scheduling_pays(SWEEP, SOLO_BEST)[0] is True
 

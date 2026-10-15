@@ -34,9 +34,9 @@ def star():
     return RexGraph.from_graph([0, 0, 0, 0], [1, 2, 3, 4])
 
 @pytest.fixture
-def drct():
-    s = [0,0,0,0,0,0,0,1,1,2,3,4,5,6,1,2]
-    t = [1,2,3,4,5,6,7,2,3,4,5,6,7,7,7,3]
+def ring_chords():
+    s = list(range(8)) * 2
+    t = [(i + step) % 8 for step in (1, 2) for i in range(8)]
     rex = RexGraph.from_graph(s, t)
     return rex.promote()
 
@@ -200,8 +200,8 @@ class TestCharacter:
     def test_k4_kappa(self, k4):
         assert np.all(k4.coherence >= 0.5 - 1e-10)
 
-    def test_summary(self, drct):
-        ss = drct.structural_summary()
+    def test_summary(self, ring_chords):
+        ss = ring_chords.structural_summary()
         assert 'mean_kappa' in ss
 
 
@@ -229,8 +229,8 @@ class TestLayout:
     def test_3d(self, k4):
         assert k4.layout_3d.shape == (4, 3)
 
-    def test_finite(self, drct):
-        assert np.all(np.isfinite(drct.layout))
+    def test_finite(self, ring_chords):
+        assert np.all(np.isfinite(ring_chords.layout))
 
 
 class TestCycles:
@@ -343,10 +343,10 @@ class TestQuotient:
         qa = k4.quotient_analysis(em)
         assert 'betti_rel' in qa
 
-    def test_congruence(self, drct):
-        vm, em, fm = drct.star_of_vertex(0)
-        labels, nc = drct.congruence_classes(em, dim=1)
-        assert labels.shape[0] == drct.nE
+    def test_congruence(self, ring_chords):
+        vm, em, fm = ring_chords.star_of_vertex(0)
+        labels, nc = ring_chords.congruence_classes(em, dim=1)
+        assert labels.shape[0] == ring_chords.nE
 
     def test_roundtrip(self, k4):
         sig = np.random.randn(6)
@@ -403,11 +403,11 @@ class TestPersistence:
 
 
 class TestStandard:
-    def test_metrics(self, drct):
+    def test_metrics(self, ring_chords):
         from rexgraph.core import _standard
-        ap, ai, ae = drct._adjacency_bundle
-        aw = _standard.build_adj_weights(ae, np.ones(drct.nE))
-        m = _standard.build_standard_metrics(ap, ai, ae, aw, drct.nV, drct.nE)
+        ap, ai, ae = ring_chords._adjacency_bundle
+        aw = _standard.build_adj_weights(ae, np.ones(ring_chords.nE))
+        m = _standard.build_standard_metrics(ap, ai, ae, aw, ring_chords.nV, ring_chords.nE)
         assert abs(m['pagerank'].sum() - 1.0) < 1e-6
 
 
@@ -488,17 +488,17 @@ class TestDashboard:
 
 
 class TestFullPipeline:
-    def test_drct(self, drct):
-        assert drct.betti[0] == 1
-        assert drct.layout.shape == (8, 2)
-        assert abs(drct.RL.trace() - float(drct.nhats)) < 1e-10
+    def test_ring_chords(self, ring_chords):
+        assert ring_chords.betti[0] == 1
+        assert ring_chords.layout.shape == (8, 2)
+        assert abs(ring_chords.RL.trace() - float(ring_chords.nhats)) < 1e-10
         for e in range(16):
-            assert abs(drct.structural_character[e].sum() - 1.0) < 1e-10
-        assert np.all(drct.coherence >= -1e-10)
-        assert np.all(drct.rcfe_curvature >= -1e-10)
-        h = drct.hodge_full(np.ones(16))
+            assert abs(ring_chords.structural_character[e].sum() - 1.0) < 1e-10
+        assert np.all(ring_chords.coherence >= -1e-10)
+        assert np.all(ring_chords.rcfe_curvature >= -1e-10)
+        h = ring_chords.hodge_full(np.ones(16))
         assert abs(h['pct_grad'] + h['pct_curl'] + h['pct_harm'] - 1.0) < 1e-6
-        Ek, Ep, _ = drct.energy_kin_pot(np.ones(16))
+        Ek, Ep, _ = ring_chords.energy_kin_pot(np.ones(16))
         assert Ek >= 0 and Ep >= 0
 
 
@@ -516,9 +516,9 @@ class TestRL4:
         """tr(RL) must equal nhats exactly."""
         assert abs(k4.RL.trace() - float(k4.nhats)) < 1e-10
 
-    def test_trace_equals_nhats_drct(self, drct):
+    def test_trace_equals_nhats_ring_chords(self, ring_chords):
         """tr(RL) = nhats on a larger graph too."""
-        assert abs(drct.RL.trace() - float(drct.nhats)) < 1e-10
+        assert abs(ring_chords.RL.trace() - float(ring_chords.nhats)) < 1e-10
 
     def test_chi_shape_matches_nhats(self, k4):
         """chi should have nhats columns, not hardcoded 3."""
@@ -528,17 +528,17 @@ class TestRL4:
         """phi should have nhats columns."""
         assert k4.vertex_character.shape == (k4.nV, k4.nhats)
 
-    def test_chi_on_simplex(self, drct):
+    def test_chi_on_simplex(self, ring_chords):
         """chi must sum to 1 per edge regardless of nhats."""
-        chi = drct.structural_character
-        for e in range(drct.nE):
+        chi = ring_chords.structural_character
+        for e in range(ring_chords.nE):
             assert abs(chi[e].sum() - 1.0) < 1e-10
             assert np.all(chi[e] >= -1e-10)
 
-    def test_phi_on_simplex(self, drct):
+    def test_phi_on_simplex(self, ring_chords):
         """phi must sum to 1 per vertex regardless of nhats."""
-        phi = drct.vertex_character
-        for v in range(drct.nV):
+        phi = ring_chords.vertex_character
+        for v in range(ring_chords.nV):
             assert abs(phi[v].sum() - 1.0) < 1e-8
 
     def test_build_RL_generic(self):
@@ -587,17 +587,17 @@ class TestRL4:
         assert r['nhats'] == 3
         assert abs(np.trace(r['RL']) - 3.0) < 1e-10
 
-    def test_L_coPC_property(self, drct):
+    def test_L_coPC_property(self, ring_chords):
         """L_coPC should be either None or a valid (nE, nE) matrix."""
-        L_C = drct.L_coPC
+        L_C = ring_chords.L_coPC
         if L_C is not None:
-            assert L_C.shape == (drct.nE, drct.nE)
+            assert L_C.shape == (ring_chords.nE, ring_chords.nE)
             assert np.allclose(L_C, L_C.T, atol=1e-12)
             assert np.all(np.linalg.eigvalsh(L_C) >= -1e-10)
 
-    def test_hat_names_in_bundle(self, drct):
+    def test_hat_names_in_bundle(self, ring_chords):
         """hat_names should list the active Laplacians."""
-        rcf = drct._rcf_bundle
+        rcf = ring_chords._rcf_bundle
         assert 'hat_names' in rcf
         assert 'L1_down' in rcf['hat_names']
         assert len(rcf['hat_names']) == rcf['nhats']
@@ -632,16 +632,16 @@ class TestCorrelationalCoherence:
         S = k4.phi_similarity
         assert np.all(S >= 0.5 - 1e-10)
 
-    def test_fiber_similarity_shape(self, drct):
-        S = drct.fiber_similarity
-        assert S.shape == (drct.nV, drct.nV)
+    def test_fiber_similarity_shape(self, ring_chords):
+        S = ring_chords.fiber_similarity
+        assert S.shape == (ring_chords.nV, ring_chords.nV)
 
-    def test_fiber_similarity_range(self, drct):
-        S = drct.fiber_similarity
+    def test_fiber_similarity_range(self, ring_chords):
+        S = ring_chords.fiber_similarity
         assert np.all(S >= -1e-10) and np.all(S <= 1.0 + 1e-10)
 
-    def test_fiber_similarity_symmetric(self, drct):
-        S = drct.fiber_similarity
+    def test_fiber_similarity_symmetric(self, ring_chords):
+        S = ring_chords.fiber_similarity
         assert np.allclose(S, S.T, atol=1e-12)
 
 
@@ -849,17 +849,17 @@ class TestDynamicRCFE:
             np.asarray(k4.B1, dtype=np.float64), sigma, k4.nV, k4.nE)
         assert ok, f"Bianchi violated: residual = {res}"
 
-    def test_bianchi_random_delta(self, drct):
+    def test_bianchi_random_delta(self, ring_chords):
         """Bianchi holds on a larger graph with random deficit."""
         from rexgraph.core import _rcfe
-        nF = drct.nF
+        nF = ring_chords.nF
         if nF == 0:
             pytest.skip("No faces")
         delta = np.random.randn(nF)
         sigma = _rcfe.relational_strain_dynamic(
-            np.asarray(drct.B2_hodge, dtype=np.float64), delta, drct.nE, nF)
+            np.asarray(ring_chords.B2_hodge, dtype=np.float64), delta, ring_chords.nE, nF)
         ok, res = _rcfe.verify_bianchi_strain(
-            np.asarray(drct.B1, dtype=np.float64), sigma, drct.nV, drct.nE)
+            np.asarray(ring_chords.B1, dtype=np.float64), sigma, ring_chords.nV, ring_chords.nE)
         assert ok, f"Bianchi violated: residual = {res}"
 
     def test_optimal_alpha(self, k4):

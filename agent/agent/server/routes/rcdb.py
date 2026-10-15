@@ -1,8 +1,8 @@
 """
 agent.server.routes.rcdb: the Relational Complex Database over HTTP.
 
-Stores every analysed complex as a first class record and lets you query
-the database *by structure* (Betti, coherence, voids), not just by id.
+Stores analyzed complexes as records that can be queried by structural
+properties, including Betti numbers, coherence and void counts.
 The backend is chosen per deployment via the ``REXGRAPH_RCDB_URI`` env
 var. The default auto URI opens an existing layout or creates the canonical
 LocalStore under the config directory. Native Memory/Local/SQLite records share

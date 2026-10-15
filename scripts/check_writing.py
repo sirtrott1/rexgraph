@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Report prose punctuation in tracked documentation and source comments.
+"""Report prose punctuation in public documentation and source comments.
 
 This reader never edits files. Code, identifiers, links, literal examples and
 mathematical notation retain their syntax. A clean report is a punctuation
@@ -113,9 +113,11 @@ def findings(path, text):
             yield number, "prose hyphen", match.group()
 
 
-def tracked_paths():
-    output = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT)
-    return [ROOT / name for name in output.decode().split("\0") if name]
+def public_paths():
+    output = subprocess.check_output(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=ROOT)
+    paths = {ROOT / name for name in output.decode().split("\0") if name}
+    return sorted(path for path in paths if path.is_file())
 
 
 def main():
@@ -124,7 +126,7 @@ def main():
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     result = []
-    for path in args.paths or tracked_paths():
+    for path in args.paths or public_paths():
         if path.suffix not in SUFFIXES:
             continue
         for number, kind, context in findings(path, path.read_text()):

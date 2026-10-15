@@ -52,6 +52,7 @@ def test_save_takes_path_then_obj(tmp_path, ext, save, load):
 
 
 def test_safetensors_takes_path_then_obj(tmp_path):
+    pytest.importorskip("safetensors", reason="this format requires rexgraph[io]")
     r = _rex()
     p = str(tmp_path / "t.safetensors")
     rio.save_safetensors(p, r)
@@ -60,6 +61,7 @@ def test_safetensors_takes_path_then_obj(tmp_path):
 
 def test_the_swapped_order_warns_and_still_works(tmp_path):
     """RexGraph and path have disjoint types, so the swap is detected, not inferred."""
+    pytest.importorskip("safetensors", reason="this format requires rexgraph[io]")
     r = _rex()
     p = str(tmp_path / "swapped.safetensors")
     with pytest.warns(DeprecationWarning, match=r"\(path, obj\)"):
@@ -100,6 +102,7 @@ def test_generic_save_load_round_trips_every_format(tmp_path, ext):
 def test_load_safetensors_returns_object_and_cache(tmp_path):
     """The asymmetric path, for callers that want the cached arrays without recomputing
     them. `load` and `safetensors_to_rex` return the object alone."""
+    pytest.importorskip("safetensors", reason="this format requires rexgraph[io]")
     r = _rex()
     p = str(tmp_path / "d.safetensors")
     rio.save_safetensors(p, r)

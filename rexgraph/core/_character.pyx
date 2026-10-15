@@ -333,7 +333,7 @@ def structural_summary(np.ndarray[f64, ndim=2] chi,
     return result
 
 
-# Derived coefficients and operators (from DRCT/I-SPY2 case studies)
+# Channel summaries and derived coefficients
 
 def topological_integrity(np.ndarray[f64, ndim=2] chi,
                            np.ndarray[f64, ndim=1] edge_weights,

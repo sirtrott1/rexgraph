@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-rexgraph test: exercise every code path in the agent repo.
+Check installed Agent imports, processing workflows and configured services.
 
 Usage:
     python -m agent.cli.test_all                   # run all tests
     python -m agent.cli.test_all --only ocr        # just OCR
     python -m agent.cli.test_all --only pipeline   # just pipeline
-    python -m agent.cli.test_all --file paper.pdf  # test with a specific file
+    python -m agent.cli.test_all --file document.pdf  # test with a specific file
     python -m agent.cli.test_all --verbose          # show details
 """
 
@@ -98,7 +98,7 @@ def test_platform(t):
     def _detect():
         from agent.cli.config import detect_platform
         p = detect_platform()
-        return "gpu=%s, ram=%dGB" % (p.gpu, p.system_ram_gb)
+        return "os=%s, gpu=%s, python=%s" % (p.os, p.gpu, p.python)
     t.run("detect_platform", _detect)
 
     def _config():
@@ -172,12 +172,10 @@ def test_ocr(t, test_file=None):
 
     def _got_status():
         import importlib
-        from pathlib import Path
+        from agent.integrations.unlimited_ocr import GOTOCRClient
         libs = (importlib.util.find_spec("transformers") is not None
                 and importlib.util.find_spec("torch") is not None)
-        model_dir = Path.home() / ".cache" / "huggingface" / "hub" / "models--stepfun-ai--GOT-OCR-2.0-hf"
-        snapshots = model_dir / "snapshots"
-        model = snapshots.exists() and any(snapshots.iterdir())
+        model = GOTOCRClient()._model_cached()
         return f"libs={libs}, model={model}"
     t.run("GOT-OCR status", _got_status)
 
@@ -235,8 +233,7 @@ def test_corpus(t):
         corpus.add_text("The fox jumps over the dog. " * 30, doc_id="doc1")
         corpus.add_text("Physics studies natural phenomena. " * 30, doc_id="doc2")
         corpus.build(depth="quick")
-        summary = corpus.summary()
-        return "%d docs" % summary.get("n_documents", 0)
+        return "%d docs" % corpus.n_documents
     t.run("CorpusBuilder.build", _build)
 
 
@@ -322,7 +319,7 @@ def test_server_routes(t):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Test all rexgraph agent code paths")
+        description="Check installed Agent workflows and configured services")
     parser.add_argument("--only", choices=[
         "imports", "platform", "core", "ocr", "pipeline",
         "corpus", "models", "sessions", "auth", "routes", "all"],

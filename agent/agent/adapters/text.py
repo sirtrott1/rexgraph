@@ -258,17 +258,12 @@ class TextAdapter(DomainAdapter):
         return ec
 
     def _build_branching(self, text, *, min_terms=1, max_vocab=500):
-        """Sentences as k-ary relations, through the canonical constructor.
+        """Construct sentence relations using the shared text segmentation and vocabulary.
 
-        The tokenisation, the vocabulary and the sentence segmentation all come from
-        `rexgraph`, not from a second implementation here: `segment_sentences` decides the
-        boundaries by channel agreement and `from_text(pair_mode="none")` builds the
-        field. That is the whole point: a query tokenised differently from the documents
-        aligns on a vocabulary neither of them has.
-
-        `sources`/`targets` come back EMPTY, which is honest rather than lossy: there are
-        no 2 ary relations in this construction, and `build_rex_from_edges` reads the
-        supports out of `branching`.
+        ``segment_sentences`` determines boundaries and ``from_text(pair_mode="none")``
+        builds the relations. The construction stores higher arity supports in
+        ``branching``; pairwise ``sources`` and ``targets`` are empty. Downstream graph
+        construction reads those supports directly.
         """
         from rexgraph.construct import from_text
         from rexgraph.segment import segment_sentences

@@ -20,6 +20,7 @@ valid fallback, so the library runs on a machine with no GPU or toolchain.
 from __future__ import annotations
 
 import os
+import operator
 from collections.abc import Callable
 
 __all__ = [
@@ -81,18 +82,36 @@ def best_backend(prefer: str | None = None) -> str:
 
 # thread control (the CPU parallel width for the compiled OpenMP kernels)
 
+_THREAD_LIMITER = None
+
 def set_threads(n: int | None) -> None:
-    """Set the CPU parallel width for the OpenMP kernels via OMP_NUM_THREADS (most effective set
-    before the first heavy kernel call). None restores the default (all cores)."""
-    if n is None:
-        os.environ.pop("OMP_NUM_THREADS", None)
-    else:
-        os.environ["OMP_NUM_THREADS"] = str(int(n))
-    try:                                                     # apply at runtime when possible
-        import threadpoolctl
-        threadpoolctl.threadpool_limits(n)
-    except Exception:
-        pass
+    """Set a positive CPU thread width. None restores the native pool defaults.
+
+    The width also sets OMP_NUM_THREADS for subsequently initialized kernels.
+    Resetting removes that override and restores pool widths held before the
+    first explicit setting, including limits selected by the environment.
+    """
+    global _THREAD_LIMITER
+    if n is not None:
+        if isinstance(n, bool):
+            raise ValueError("thread width must be a positive integer")
+        n = operator.index(n)
+        if n < 1:
+            raise ValueError("thread width must be a positive integer")
+    from ._threadpools import ThreadLimit, configuration_lock
+    with configuration_lock():
+        if _THREAD_LIMITER is not None:
+            _THREAD_LIMITER.restore_original_limits()
+            _THREAD_LIMITER = None
+        if n is None:
+            os.environ.pop("OMP_NUM_THREADS", None)
+        else:
+            os.environ["OMP_NUM_THREADS"] = str(n)
+        try:
+            if n is not None:
+                _THREAD_LIMITER = ThreadLimit(n)
+        except Exception:
+            pass
 
 
 def effective_threads() -> int:
@@ -129,7 +148,7 @@ def get_default_backend() -> str | None:
 # resolves the preferred backend DYNAMICALLY for THIS host via rexgraph._env.recommend_backend()
 # instead of assuming one machine's GPU. The _env recommendation (cuda/rocm/vulkan/metal/cpu) is
 # mapped onto a registered backend name; ROCm reuses the 'cuda' backend (torch/cupy share the
-# namespace), Metal maps to 'mps'. A recommendation is used ONLY if that backend is registered AND
+# namespace), Metal maps to 'mps'. A recommendation is used only if that backend is registered AND
 # available AND the op implements it: otherwise dispatch falls through to best_backend()/cpu, so
 # a recommended GPU without a working runtime never breaks a call. The REXGRAPH_BACKEND env var
 # (honored inside recommend_backend) wins over auto detection; an explicit set_default_backend /
@@ -137,7 +156,7 @@ def get_default_backend() -> str | None:
 
 # _env names -> registered compute backend names
 _BACKEND_ALIAS: dict[str, str] = {
-    "cuda": "cuda", "rocm": "cuda", "metal": "mps", "cpu": "cpu", "openmp": "openmp",
+    "cuda": "cuda", "rocm": "cuda", "vulkan": "vulkan", "metal": "mps", "cpu": "cpu", "openmp": "openmp",
 }
 _ENV_MOD = None            # cached rexgraph._env module (or None if unavailable)
 _ENV_TRIED = False
@@ -222,8 +241,8 @@ def _inner_thread_limiter(inner: int | None):
     if not inner or inner <= 0:
         return contextlib.nullcontext()
     try:
-        from threadpoolctl import threadpool_limits
-        return threadpool_limits(limits=int(inner))
+        from ._threadpools import ThreadLimit
+        return ThreadLimit(int(inner))
     except Exception:
         return contextlib.nullcontext()
 
@@ -457,7 +476,7 @@ register_op("block_cg", "cuda", _block_cg_gpu)
 
 # these two already gate on work size internally, so one implementation serves
 # every backend: `prefer` is passed through rather than selecting the callable.
-for _be in ("cpu", "openmp", "cuda"):
+for _be in ("cpu", "openmp", "cuda", "vulkan"):
     register_op("greens_diagonal", _be,
                 lambda *a, _b=_be, **kw: _greens_diagonal(*a, backend=_b, **kw))
     register_op("solve_block", _be,
@@ -470,6 +489,27 @@ register_backend("cuda", available=_cuda_available, kind="gpu",
                  description="NVIDIA / ROCm GPU (via torch or cupy).")
 register_backend("mps", available=_mps_available, kind="gpu",
                  description="Apple Metal (via torch mps).")
+
+
+def _vulkan_available():
+    from rexgraph.vulkan_compute import available
+    return available()
+
+
+def _block_cg_vulkan(A, B, dinv=None, tol=1e-10, maxit=1000):
+    import numpy as np
+    from rexgraph.native_sparse import as_native
+    from rexgraph.vulkan_compute import block_cg
+    A = as_native(A)
+    if dinv is None:
+        diagonal = A.diagonal()
+        dinv = np.where(np.abs(diagonal) > 1e-30, 1.0 / diagonal, 1.0)
+    return block_cg(A, B, dinv, tol=tol, maxit=maxit)
+
+
+register_backend("vulkan", available=_vulkan_available, kind="gpu",
+                 description="Float64 Vulkan sparse products with host vector updates.")
+register_op("block_cg", "vulkan", _block_cg_vulkan)
 
 
 # Torch sparse construction

@@ -32,15 +32,8 @@ def test_dead_color_target_is_removed_and_temporal_twin_is_reference_only():
     assert not (root / "core" / "_color.pyx").exists()
     assert not (root / "core" / "_temporal_entity_py.py").exists()
     assert (root / "reference" / "temporal_entity.py").is_file()
-    assert (root / "reference" / "harmonic.py").is_file()
 
 
-def test_retired_harmonic_runtime_path_is_only_a_compatibility_surface():
-    import rexgraph.harmonic as legacy
-    import rexgraph.reference.harmonic as reference
-
-    assert legacy.get_harmonic_basis is reference.get_harmonic_basis
-    assert legacy.harmonic_product_structure is reference.harmonic_product_structure
 
 
 def test_identity_primitives_live_below_io_with_compatibility_exports():

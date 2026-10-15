@@ -1,8 +1,7 @@
-"""
-RexGraph Mathematical Agent: auto construction and analysis pipeline.
+"""Construct and analyze relational complexes from application data.
 
-Data in -> math computes -> results out.
-No black box. Every claim is a matrix operation. Every uncertainty is a void count.
+The Agent package provides input adapters, analysis pipelines, sessions,
+record storage integration and application services.
 """
 
 #: The agent version, kept here rather than read back from installed metadata so a

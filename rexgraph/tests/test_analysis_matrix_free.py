@@ -1,12 +1,8 @@
-"""The analysis surface off its dense operators, checked against them.
+"""Compare sparse analysis results with dense calculations on generated complexes.
 
-`analyze` was cubic: 37.8s at nE=2396 and about four minutes at nE=4797. The cost was
-not the channel character or the spectral bundle, both of which are already sparse. It
-was three places that took a whole spectrum to report a bounded reading, and one that
-counted eigenvalues under a cutoff to get an integer the rank tower already has.
-
-Each is checked against the dense route rather than assumed equal to it. The dense
-routes stay reachable, which is what makes these tests possible.
+The tests cover bounded spectral summaries, graded state evolution, exact kernel
+counts and optional spectral extras. Dense operations provide comparison values
+on the small fixtures used here.
 """
 from __future__ import annotations
 
@@ -113,7 +109,7 @@ def test_the_standard_baselines_are_off_by_default(rex):
 
 
 def test_the_fiedler_value_is_off_by_default(rex):
-    """An approximate slice, and 9.4s of a 38s call at nE=2400."""
+    """Compute approximate spectral extras only when explicitly requested."""
     from rexgraph.analysis import analyze
     assert analyze(rex)["coupling"]["fiedler_L1"] == 0.0
     assert analyze(rex, spectral_extras=True)["coupling"]["fiedler_L1"] >= 0.0

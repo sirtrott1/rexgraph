@@ -33,7 +33,7 @@ PAIRWISE = {
 }
 
 
-def test_the_paper_values():
+def test_fixed_resolvent_values():
     unit = _graph([(0, 1), (1, 2)])
     assert list(resolvent_rank(unit, 0, [1, 0, 0], Q(1, 2), "walk")) == [Q(7, 12), Q(1, 3), Q(1, 12)]
     weighted = _graph([(0, 1), (1, 2)], w_E=[Q(1), Q(1, 2)])

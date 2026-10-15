@@ -114,5 +114,5 @@ def test_only_attach_faces_reaches_typed_face_selection():
             if re.search(r"\.typed_face_selection\(", line):
                 offenders.append(f"{f.relative_to(root.parent)}:{i}")
 
-    assert scanned > 100, f"the scan reached only {scanned} files, so it proved nothing"
+    assert scanned > 100, f"the scan reached only {scanned} files"
     assert not offenders, "direct typed_face_selection calls: " + ", ".join(offenders)

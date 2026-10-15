@@ -1,21 +1,7 @@
-"""Every advertised cache group has to write something.
+"""Check that each declared cache group reaches a writer and produces stored values.
 
-A cache table is a promise about what `cache="X"` does. The writers resolve names by
-`getattr` inside `try/except: pass`, so a name that no longer exists costs nothing and
-says nothing: the call succeeds, the file is written, and the thing you asked for is
-absent. That is how these drifted.
-
-What this found when it was written:
-
-    wave, quotient, persistence   groups with no writer, or a writer that created an
-                                  empty group and returned. `cache="wave"` was a no-op.
-    overlap_adjacency             named by all four formats; not a property of RexGraph
-                                  at all, so all four skipped it silently.
-    safetensors                   a comment claiming it mirrored bundle's table exactly,
-                                  next to a table that had already diverged from it.
-
-So the rule is: a declared group must reach a writer, and a declared name must be
-resolvable on the object it is written from. Both are checked here rather than trusted.
+The tests cover HDF5 and binary directory output, compare shared group declarations,
+and check that the standard metric group contains its arrays and scalar attributes.
 """
 
 from __future__ import annotations

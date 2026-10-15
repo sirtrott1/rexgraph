@@ -1,16 +1,8 @@
-"""Baselines trained on features read back out of the store.
+"""Check model training on features read from stored synthetic complexes.
 
-This pins the WIRING, not a method. The question is whether a supervised task can
-be run end to end off the RCDB: ingest, persist across a process boundary, project
-signatures into a feature matrix, fit, and read the store as it stood at a time,
-without anything being smuggled in from the in memory objects that produced it.
-
-Run against real binding data (651 protein complexes, sqlite on a local file) the
-same path gives dummy -0.003, ridge -0.000, randomforest 0.032, lightgbm 0.114,
-xgboost -0.084. That LightGBM number is not evidence of anything chemical: the
-features are seven structural scalars of a protein ligand incidence, which carries
-how many ligands were measured and almost nothing about binding. It is reported
-here so nobody later mistakes a passing pipeline for a result.
+Tests generate complexes and labels, persist them, reopen stores across process
+boundaries and fit supported baseline models on extracted signatures. Historical
+reads verify that features come from the selected stored version.
 """
 
 import subprocess
@@ -70,7 +62,7 @@ def test_the_store_is_readable_from_another_process(sqlite_store, tmp_path):
     uri = f"sqlite:///{tmp_path / 'rcdb.sqlite'}"
     code = (f"from agent import rcdb;s=rcdb.open_store({uri!r});"
             f"print(len(s.list(limit=999)), int(s.get('r0005').nE))")
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    out = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True)
     assert out.returncode == 0, out.stderr[-800:]
     n_records, n_edges = out.stdout.split()
     assert int(n_records) == 15 and int(n_edges) > 0

@@ -1,19 +1,14 @@
-"""
-rexgraph.gpu_preflight: prove the GPU paths on the machine you are paying for.
+"""Compare RexGraph GPU operations with CPU results on the available devices.
 
-The GPU paths are torch, so they are portable between CUDA and ROCm in principle:
-torch presents HIP as "cuda" and the same code runs. In principle is not a claim
-worth making about rented hardware, and the failure modes that matter (no float64
-sparse support, a driver that reports a device it cannot allocate on, a
-multi GPU path never exercised) all surface as a wrong answer or a hang rather
-than an import error.
-
-This runs every GPU path against a CPU oracle and reports what actually works:
+The checks exercise allocation, sparse operations and available multi GPU
+paths through PyTorch. A runtime import or a reported device count alone
+does not establish that these operations work.
 
     python -m rexgraph.gpu_preflight
     python -m rexgraph.gpu_preflight --size 4000
 
-Exit status is 0 only when every check the hardware claims to support passed.
+Exit status is zero when every check applicable to the reported hardware
+passes. Results describe the current runtime and device access.
 """
 
 from __future__ import annotations
@@ -276,12 +271,23 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", action="store_true", help="emit the report as JSON")
     ap.add_argument("--diagnose", action="store_true",
                     help="inspect device access and enumerate HIP/Vulkan without numerical qualification")
+    ap.add_argument("--backend", choices=("auto", "vulkan"), default="auto",
+                    help="qualify Torch GPU operations or select Vulkan explicitly")
     args = ap.parse_args(argv)
 
     if args.diagnose:
         report = diagnose()
+        report["torch"] = _probe_torch()
         print(json.dumps(report, indent=2))
-        return 0 if report["hip"]["available"] or report["vulkan"]["available"] else 1
+        return 0 if report["hip"]["available"] or report["vulkan"]["available"] or report["torch"]["device_count"] else 1
+    if args.backend == "vulkan":
+        from rexgraph.vulkan_compute import qualify
+        try:
+            report = qualify(args.size)
+        except Exception as exc:
+            report = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        print(json.dumps(report, indent=2))
+        return 0 if report["ok"] else 1
     report = run(args.size)
     if args.json:
         print(json.dumps(report, indent=2, default=str))

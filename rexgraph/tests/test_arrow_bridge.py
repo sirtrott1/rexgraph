@@ -38,6 +38,79 @@ if HAS_PYARROW:
 
 from rexgraph.graph import RexGraph
 
+
+def test_complex_column_name_collision_refuses_instead_of_overwriting():
+    with pytest.raises(ValueError, match="collid"):
+        arrays_to_arrow({"z": np.array([1+2j]), "z__real": np.array([99.0])})
+
+
+def test_arrow_retains_endianness_and_complex_signed_zeros():
+    arrays = {"big_endian": np.array([1, 2], dtype=">i8"),
+              "complex": np.array([complex(-0.0, -0.0), complex(1.0, -0.0)])}
+    restored = arrow_to_arrays(arrays_to_arrow(arrays))
+    for name, original in arrays.items():
+        assert restored[name].dtype == original.dtype
+        assert restored[name].tobytes() == original.tobytes()
+
+
+def test_streamed_matrices_survive_unaligned_file_record_batches(tmp_path):
+    import pyarrow as pa
+
+    arrays = {"a": np.arange(30).reshape(10, 3), "b": np.arange(20).reshape(5, 4),
+              "z": np.arange(12).reshape(6, 2).astype(complex)}
+    table = arrays_to_arrow(arrays)
+    path = tmp_path / "unaligned.arrow"
+    with pa.OSFile(str(path), "wb") as out, pa.ipc.new_file(out, table.schema) as writer:
+        writer.write_table(table, max_chunksize=5)
+    batches = list(read_arrow_batches(path, batch_rows=4))
+    for name, original in arrays.items():
+        np.testing.assert_array_equal(np.concatenate([b[name] for b in batches]), original)
+
+
+def test_arrow_batch_limit_slices_a_single_large_record_batch(tmp_path):
+    path = tmp_path / "bounded.arrow"
+    write_arrow_ipc({"x": np.arange(101)}, path)
+    batches = list(read_arrow_batches(path, batch_rows=7))
+    assert len(batches) == 15
+    assert all(len(b["x"]) <= 7 for b in batches)
+
+
+def test_arrow_yielded_arrays_own_their_buffers_after_stream_close(tmp_path):
+    path = tmp_path / "owners.arrow"
+    write_arrow_ipc({"x": np.arange(30).reshape(10, 3)}, path)
+    stream = read_arrow_batches(path, batch_rows=6)
+    chunk = next(stream)["x"]
+    stream.close()
+    np.testing.assert_array_equal(chunk, np.arange(6).reshape(2, 3))
+
+
+def test_arrow_refuses_a_missing_declared_column():
+    table = arrays_to_arrow({"x": np.arange(3), "y": np.arange(3)})
+    with pytest.raises(ValueError, match="missing"):
+        arrow_to_arrays(table.drop(["y"]))
+
+
+@pytest.mark.parametrize("limit", [0, -1, True, 1.5])
+def test_arrow_batch_limit_refuses_invalid_values_before_opening(limit, tmp_path):
+    with pytest.raises(ValueError, match="batch"):
+        list(read_arrow_batches(tmp_path / "missing.arrow", batch_rows=limit))
+
+
+def test_arrow_ipc_failed_write_preserves_previous_file(tmp_path, monkeypatch):
+    import pyarrow as pa
+
+    path = tmp_path / "atomic.arrow"
+    write_arrow_ipc({"x": np.arange(3)}, path)
+    before = path.read_bytes()
+
+    def fail(*args, **kwargs):
+        raise OSError("injected writer failure")
+
+    monkeypatch.setattr(pa.ipc, "new_file", fail)
+    with pytest.raises(OSError, match="injected"):
+        write_arrow_ipc({"x": np.arange(9)}, path)
+    assert path.read_bytes() == before
+
 # Fixtures
 
 @pytest.fixture
@@ -157,7 +230,7 @@ class TestIPCFile:
 
     def test_with_metadata(self):
         arrays = {"x": np.ones(5)}
-        meta = {"experiment": "test123"}
+        meta = {"project": "sample"}
         with tempfile.NamedTemporaryFile(suffix=".arrow", delete=False) as f:
             path = f.name
         try:

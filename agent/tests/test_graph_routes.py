@@ -30,8 +30,7 @@ def client(tmp_path_factory):
     previous = os.environ.get("REXGRAPH_CONFIG_DIR")
     previous_sessions = os.environ.get("REXGRAPH_SESSION_DIR")
     os.environ["REXGRAPH_CONFIG_DIR"] = str(tmp_path_factory.mktemp("config"))
-    # sessions too: this fixture had written 397 of them into the user's own store in a
-    # day, which is what buried a real chat at index 1177 of a list they had to scroll
+    # Keep generated sessions in this fixture's temporary directory.
     os.environ["REXGRAPH_SESSION_DIR"] = str(tmp_path_factory.mktemp("sessions"))
     import agent.server.app as server_app
     server_app._store = None
@@ -350,9 +349,7 @@ def test_the_flow_view_says_when_it_has_no_signal(client, session):
 
 
 def test_sessions_come_back_newest_first(tmp_path):
-    """It sorted by directory name, which is a random hex id, so the order carried no
-    meaning. On a real install with 5278 sessions a freshly recorded chat sat at index
-    1177: in the list, and unfindable in a dropdown."""
+    """Generated session timestamps determine ordering independently of IDs."""
     import json
 
     from agent.session import list_sessions
@@ -383,8 +380,7 @@ def test_the_listing_can_be_bounded(tmp_path):
 
 
 def test_the_store_honours_its_own_directory(tmp_path, monkeypatch):
-    """So a test holds its sessions somewhere of its own. This suite had written 1065
-    sessions into a real install in a day, 397 from one fixture."""
+    """The store uses the session directory supplied through the environment."""
     from agent.server.state import SessionStore
 
     monkeypatch.setenv("REXGRAPH_SESSION_DIR", str(tmp_path))

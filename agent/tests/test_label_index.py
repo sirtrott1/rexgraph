@@ -60,7 +60,7 @@ def test_labels_any_matches_the_full_vocabulary_not_a_12_label_sample(store):
     """labels_sample is a sample. A prefilter built on it silently misses documents
     whose matching term happens to fall outside the first twelve."""
     doc = next(d for d in _corpus().documents if d.doc_id == "storage")
-    assert len(doc.vertex_labels) > 12, "fixture too small to prove the point"
+    assert len(doc.vertex_labels) > 12, "fixture needs more than twelve labels"
     late = doc.vertex_labels[-1]
     hits = store.query(labels_any=[late], limit=50)
     assert "storage" in {r.id for r in hits}, f"{late!r} missed by the prefilter"

@@ -1,18 +1,24 @@
-"""A shared resource costs less shared than it does N times over.
+"""Check shared resource accounting and learned concurrency gain curves.
 
-Concurrent requests to ONE local server read the weights once per decode step and serve
-every one of them, and their wall clock overlaps. Measured on the 35B-A3B MoE: aggregate
-decode 53.4 tok/s at one stream against 120.8 at eight, so 2.26x. An objective that sums
-per unit cannot say that, and will spread generations to level per lane load when putting
-them on one server is the faster placement.
-
-Everything not in `_SHARED_TYPES` stays strictly additive, and one unit of a shared type
-costs exactly what it did before, so the change is confined to the case it is about.
+Synthetic observations exercise throughput interpolation, independent
+model state and monotone batch costs. A model without observations starts
+with neutral throughput gain. Shared bandwidth accounting is tested
+separately from any throughput benefit.
 """
 import numpy as np
 import pytest
 
 import rexgraph.coordinator as C
+
+
+def _calibrated_model():
+    cm = C.CostModel()
+    cm.observe_throughput(1, 100.0)
+    for _ in range(20):
+        cm.observe_throughput(2, 150.0)
+        cm.observe_throughput(4, 200.0)
+        cm.observe_throughput(8, 300.0)
+    return cm
 
 
 def _units(n, ty, group=None, prefix="u"):
@@ -54,7 +60,7 @@ def test_the_bus_draw_does_not_grow_with_the_batch():
 def test_wall_clock_is_sub_additive_but_still_increasing():
     """Cheaper together, never free: n/gain(n) has to keep rising or the greedy would
     hoard units onto one lane to keep driving the cost down."""
-    cm = C.CostModel()
+    cm = _calibrated_model()
     per = cm.cost("local_llm", "thread")[0]
     got = []
     for n in (1, 2, 4, 8, 16):
@@ -79,7 +85,7 @@ def test_an_additive_type_is_untouched():
 def test_separate_share_groups_share_nothing():
     """Three bees are three servers. Requests to different bees do not share weight
     reads, and saying otherwise would under price a fleet badly."""
-    cm = C.CostModel()
+    cm = _calibrated_model()
     same = _units(4, "local_llm", group="beeA")
     split = (_units(2, "local_llm", group="beeA", prefix="a") +
              _units(2, "local_llm", group="beeB", prefix="b"))
@@ -90,8 +96,8 @@ def test_separate_share_groups_share_nothing():
 
 
 def test_the_batch_gain_is_flat_above_what_was_measured():
-    """8 is the largest measured point, so a wave of 40 gets the gain of 8 rather than an
-    extrapolation nobody checked."""
+    """Unobserved concurrency uses the neutral default gain.
+    """
     top = max(C.LOCAL_LLM_BATCH_GAIN)
     for n in (top, top + 1, top * 5):
         assert C._batch_gain(n) == pytest.approx(C.LOCAL_LLM_BATCH_GAIN[top])
@@ -105,7 +111,7 @@ def test_the_incremental_actuator_agrees_with_a_full_recompute():
     """assign() maintains its state incrementally and its docstring promises the same
     answer as a recompute. Sub additive costs are not separable per unit, so this is the
     invariant most at risk from the change."""
-    cm = C.CostModel()
+    cm = _calibrated_model()
     rng = np.random.default_rng(0)
     types = ("local_llm", "io_llm", "gpu_kernel", "cpu_coordination")
     for trial in range(60):
@@ -120,7 +126,7 @@ def test_the_incremental_actuator_agrees_with_a_full_recompute():
         a = C.assign(units, cm)
         # the state the actuator carried must match one built from scratch
         t_inc, b_inc = C._lane_groups(a, units, cm)
-        st = C._new_state()
+        st = C._new_state(cm.batch_gain)
         for u in units:
             tt, bb = cm.cost(u["type"], a[u["id"]])
             C._state_apply(st, u, u["type"], a[u["id"]], tt, bb, +1)
@@ -158,7 +164,7 @@ def test_state_apply_is_reversible():
 def test_batching_generations_beats_spreading_them():
     """The behaviour this exists for. Four generations on one server should not be split
     across lanes to level load when co scheduling them is the cheaper placement."""
-    cm = C.CostModel()
+    cm = _calibrated_model()
     units = _units(4, "local_llm", group="bee")
     together = C.contention({u["id"]: "thread" for u in units}, units, cm)
     spread = C.contention({"u0": "thread", "u1": "proc", "u2": "igpu", "u3": "thread"},
@@ -171,11 +177,11 @@ def test_the_gain_table_learns_from_measured_throughput():
     """Same shape as CostModel.observe for times: feed what was measured, EMA it in."""
     cm = C.CostModel()
     seeded = cm.batch_gain(8)
-    cm.observe_throughput(1, 60.3)
+    cm.observe_throughput(1, 100.0)
     for _ in range(30):
-        cm.observe_throughput(8, 200.0)          # this box scales better than the seed
+        cm.observe_throughput(8, 400.0)          # this box scales better than the seed
     assert cm.batch_gain(8) > seeded + 1e-6
-    assert cm.gain_table()["baseline_tok_s"] == pytest.approx(60.3, rel=1e-6)
+    assert cm.gain_table()["baseline_tok_s"] == pytest.approx(100.0, rel=1e-6)
 
 
 def test_a_gain_sample_before_any_baseline_is_replayed_not_dropped():
@@ -225,7 +231,7 @@ def test_the_learned_curve_reaches_the_objective():
     a = {u["id"]: "thread" for u in units}
     seed = C.CostModel()
     learned = C.CostModel()
-    learned.observe_throughput(1, 60.3)
+    learned.observe_throughput(1, 100.0)
     for _ in range(30):
         learned.observe_throughput(8, 200.0)
     t_seed, _ = C._lane_groups(a, units, seed)
@@ -234,15 +240,14 @@ def test_the_learned_curve_reaches_the_objective():
 
 
 def test_two_models_do_not_share_a_curve():
-    """The seed is one model on one box. Two coordinators on different hardware must not
-    overwrite each other, which is why the table is per CostModel and not the module dict."""
+    """Runtime throughput observations remain local to each CostModel instance."""
     a, b = C.CostModel(), C.CostModel()
     a.observe_throughput(1, 60.0)
     for _ in range(30):
         a.observe_throughput(8, 240.0)
     assert a.batch_gain(8) != pytest.approx(b.batch_gain(8))
-    assert b.batch_gain(8) == pytest.approx(C.LOCAL_LLM_BATCH_GAIN[8])
-    assert C.LOCAL_LLM_BATCH_GAIN[8] == 2.26, "the module seed was mutated"
+    assert b.batch_gain(8) == pytest.approx(C.LOCAL_LLM_BATCH_GAIN[1])
+    assert C.LOCAL_LLM_BATCH_GAIN[1] == 1.0, "the neutral default was mutated"
 
 
 def test_the_incremental_state_does_not_drift():

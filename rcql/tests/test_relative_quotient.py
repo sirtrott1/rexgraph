@@ -30,8 +30,8 @@ def test_query_members_and_materialized_projection_use_core():
                                   q.coefficient_digest, q.source_boundary_digest)
     assert all(value == Q(0) for value in q.residuals)
     engine.params["p"] = result.values[-1]
-    proof = engine.execute(parse('FROM $r RETURN CHAIN_MAP($p)')).values[0]
-    assert proof.commutation_residuals == q.residuals
+    verification = engine.execute(parse('FROM $r RETURN CHAIN_MAP($p)')).values[0]
+    assert verification.commutation_residuals == q.residuals
 
 
 def test_explain_never_builds_quotient_or_computes_rank(monkeypatch):

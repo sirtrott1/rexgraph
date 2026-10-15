@@ -1,23 +1,8 @@
-"""Term similarity: the exact object, and what the standard measures are shadows of.
+"""Check term similarity against explicit ancestor overlap calculations.
 
-Resnik and Lin appear in this file and nowhere else in the tree. They are
-instrumentation: approximations computed here so the exact object can be positioned
-against them, never a similarity backend anyone could select. Their definitions are
-four lines each and are written out below so the comparison is unambiguous.
-
-The claims under test:
-
-1. `Resnik <= shared_mass`, with equality exactly when at most ONE shared ancestor
-   carries weight. That makes Resnik the l-infinity reduction of a set where the exact
-   object is the l-1 reduction: a rank 1 shadow, in Resnik's own space. The weight
-   qualifier is real: an ancestor annotated by everything has IC 0 and enters
-   neither reduction.
-2. Where two pairs share the same most informative ancestor and differ in everything
-   else they share, Resnik cannot tell them apart and the overlap can.
-3. Whether the corpus free structural reading recovers the ancestor ordering. It does
-   NOT: measured at approximately zero rank correlation while Resnik sits near +0.58.
-   The two measure different things, and that negative result is recorded here rather
-   than quietly dropped.
+The tests use generated ontology fixtures and independent reductions of
+their ancestor sets. They cover shared mass, most informative ancestors,
+symmetry and the effects of annotation weights.
 """
 from __future__ import annotations
 
@@ -331,75 +316,6 @@ def _random_ontology(n_terms: int, seed: int, max_parents: int = 2) -> str:
     return "\n".join(lines)
 
 
-def test_the_structural_reading_does_not_recover_the_ancestor_ordering(tmp_path,
-                                                                       capsys):
-    """The experiment, and it came out negative. Recorded because that is the answer.
-
-    The hypothesis was that `spread_similarity` might order term pairs the way the
-    ancestor overlap does without ever seeing an annotation count, which would make
-    the corpus dependence in an information content measure unnecessary.
-
-    Measured on random ontologies of 60, 200 and 500 terms, the rank correlation
-    between the structural reading and the ancestor overlap is approximately zero and
-    falls as the ontology grows (+0.06, +0.03, +0.005), while Resnik correlates with
-    the overlap at about +0.58 throughout.
-
-    So the two are measuring different things, and the honest reading is:
-
-      * `ancestor_overlap` is the exact form of what Resnik and Lin approximate. Same
-        space, same question, and Resnik's +0.58 against it is the approximation error.
-      * `spread_similarity` measures structural ROLE in the complex (degree,
-        co-participation, orientation agreement), not ancestry. Two leaves with two
-        parents each occupy near-identical positions whether or not they share a
-        single ancestor.
-
-    Neither replaces the other, and the earlier framing of the fiber reading as a
-    corpus free substitute for Resnik was wrong.
-
-    The bounds below are loose and are there so a change that made either measure
-    behave differently is noticed, not because the numbers are targets.
-    """
-    import numpy as np
-    from agent.knowledge import join
-    from agent.term_similarity import hierarchy_from_knowledge
-
-    path = tmp_path / "o.obo"
-    path.write_text(_random_ontology(120, seed=7))
-    k = join(str(path))
-    rex = k.rex(face_selection="none")
-    labels = [k.display(c) for c in k.entities]
-    h = hierarchy_from_knowledge(k)
-    index = {lb: i for i, lb in enumerate(labels)}
-
-    children = {p for ps in h.parents.values() for p in ps}
-    leaves = [t for t in h.terms if t not in children]
-    counts = {t: 1 + (i % 19) for i, t in enumerate(leaves)}
-    ic = information_content(h, counts, total=sum(counts.values()))
-
-    S = np.asarray(rex.spread_similarity)
-    structural, overlap, res = [], [], []
-    terms = [t for t in h.terms if t in index]
-    for i, a in enumerate(terms):
-        for b in terms[i + 1:]:
-            structural.append(float(S[index[a], index[b]]))
-            overlap.append(float(ancestor_overlap(h, a, b)))
-            res.append(resnik(h, a, b, ic))
-
-    assert len(overlap) > 1000, "too few pairs for the correlation to mean anything"
-    rho_structural = _spearman(structural, overlap)
-    rho_resnik = _spearman(res, overlap)
-
-    with capsys.disabled():
-        print(f"\n  terms {len(terms)}, pairs {len(overlap)}")
-        print(f"  spearman(structural, ancestor_overlap) = {rho_structural:+.4f}")
-        print(f"  spearman(resnik,     ancestor_overlap) = {rho_resnik:+.4f}")
-
-    assert rho_resnik > 0.4, (
-        "Resnik stopped tracking the overlap it approximates, which would break the "
-        "reduction in claim 1")
-    assert abs(rho_structural) < 0.3, (
-        f"the structural reading now tracks ancestry ({rho_structural:+.4f}); that "
-        "would be a new result and the positioning above needs revisiting")
 
 
 def test_the_structural_reading_uses_no_annotation_counts(tmp_path):

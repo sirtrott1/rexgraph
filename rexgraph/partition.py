@@ -1,39 +1,29 @@
-"""Section readings: the leverage is a measure, so it partitions.
+"""Rank, cycle and response measurements for groups of relations.
 
-`R_eff` is the diagonal of the orthogonal projector onto the row space of `B_k`, so it
-refines the rank tower and distributes over ANY sectioning of the cells. The sections may
-differ in type, arity and degree without disturbing it, and the totals close exactly.
+For a relation c, R_eff(c) is its leverage in the row space of B1. Each
+section groups selected relations and reports the following quantities:
 
-Per section `S`::
+    mass        sum R_eff(c)              contribution to boundary rank
+    own_rank    rank(B1 restricted)       rank of the section alone
+    efficiency  mass / own_rank           leverage relative to local rank
+    own_cycles  |S| - own_rank            local cycle dimension
+    share       sum (1 - R_eff(c))        contribution to global cycle dimension
+    gap         share - own_cycles       cycle share beyond the local cycles
 
-    mass        sum R_eff(c)            its share of rank(B_k)
-    own_rank    rank(B_k restricted)    what it spans by itself
-    efficiency  mass / own_rank         how much of what it spans it is granted
-    own_cycles  |S| - own_rank          the cycles it carries alone
-    share       sum (1 - R_eff(c))      its share of the global cycle space
-    gap         share - own_cycles      what the REST of the complex closes for it
+When sections form a disjoint partition covering every relation,
+verify=True checks that their masses sum to rank(B1). It also checks
+that each section's own_cycles does not exceed its share. Overlapping
+sections can count the same relation more than once, so their totals
+are not required to equal the global rank.
 
-The gap is the one with no local analogue: a section whose gap is zero carries its own
-cycles entirely and depends on nothing outside, and a large gap means the surrounding
-structure is doing the closing. Both bounds are theorems rather than conventions, and
-`verify=True` asserts them: masses sum to `rank(B_k)`, and no section's own cycles exceed
-its share.
+Leverage is computed once for the full complex and reused for each
+section. Local ranks use the exact integer boundary representation.
 
-One solve serves every section, because the leverage is computed once over all cells and
-then regrouped. Sectioning a complex a different way costs a rank per section and nothing
-else.
-
-`coupling` is separate and optional, because it needs the field rather than its
-quadrance: the spread squares the SIGN of the field Gram away, so it is a coordinate the
-spread cannot carry and not a variant of one.
-
-What the sign means is settled for the pairwise case and measured for the rest. By hand
-on a triangle whose edges run consistently around the cycle, `<b_i, L0+ b_j> = -1/3`, and
-reversing one edge flips it to `+1/3`; on a tree it is exactly 0, because distinct edges
-share no current path. So NEGATIVE is co oriented along a shared cycle.
-
-The coupling sign depends on the stored orientation convention and shared
-cycle paths. It does not by itself assert a conflict between source relations.
+Optional coupling measurements retain the signs of field Gram entries.
+On a consistently oriented triangle an off diagonal entry is -1/3;
+reversing one relation changes the corresponding sign. Distinct relations
+on a tree have zero coupling. These signs depend on stored orientation
+and shared cycle paths and do not assert conflicts in source data.
 """
 from __future__ import annotations
 
@@ -231,10 +221,8 @@ def section_tensor(rex, sections, *, grades=None, leverage=None, verify=True):
     `sections` maps a name to that grade's cell indices. To section several grades, pass
     `{name: {grade: ids}}`; a flat `{name: ids}` is read as grade 1.
 
-    `leverage` is `{grade: array}` and is the whole point of the design: one solve serves
-    every sectioning, so a caller reading the same complex several ways passes it in
-    rather than paying the solve again. Grade 1 over 11616 real relations costs about
-    17s, so recomputing it per call is the difference between one solve and n.
+    `leverage` maps grades to arrays. Pass previously computed values to reuse one
+    solve across multiple sectionings of the same complex.
 
     Returns `(tensor, axes)` with `tensor[i, k, r]` and
     `axes = {"sections": [...], "grades": [...], "readings": [...]}`.
@@ -353,8 +341,7 @@ def candidate_readings(rex, candidates, *, shares=True):
     # column spanned" is a test against the KERNEL, which has dimension beta_0 and is
     # tiny, rather than against a factorisation of the whole operator. The quadrance is
     # then one deflated CG solve, matrix free, the same way as _effective_resistance_batch
-    # does it. The earlier version densified B and took its SVD, which is 1.05 GB at
-    # nV 4000 and nE 33k and is not what this library does anywhere else.
+    # does it, without densifying B or computing its full SVD.
     # L0 is never formed here either: membership is a kernel test and the quadrance is
     # one deflated solve, both of which the boundary supplies directly.
     Bfull = to_scipy_csr(rex._B1_dual).tocsc()
@@ -406,11 +393,8 @@ def candidate_readings(rex, candidates, *, shares=True):
         b = np.zeros(nV)
         np.add.at(b, sup, vals)
         # "Is this column in range(B1)" has an integer answer, so a float residual must
-        # never be the thing that decides it. It is also the case that the projection is
-        # right almost always: over 1200 candidates on 300 random complexes it never
-        # disagreed with the exact rank. Deciding everything exactly anyway cost 52s
-        # against the projection's 0.11s at nE 3268, because fraction free elimination
-        # over the whole operator runs per candidate.
+        # never be the thing that decides it. The projection selects whether the
+        # result needs an exact rank calculation near the solver's noise floor.
         #
         # So the projection RULES, and the exact rank ADJUDICATES. The residual is
         # compared against the decomposition's own noise floor with a wide margin either
@@ -539,13 +523,13 @@ def energy_tensor(rex, sections, labels, *, moments=("total", "mean", "spread"))
 
 
 def compose_substrates(T, E, *, verify=True):
-    """`P[section, grade, reading, moment] = T[...] * E[section, moment]`.
+    """Multiply section readings by section energy moments.
 
-    That composition, written out. The energy enters as a FACTOR and never as a
-    source, so the two substrates are multiplied and not mixed, and the result is rank one
-    in the (reading, moment) plane for every section: exactly the statement that nothing
-    fused. `verify=True` checks that rank, which is the theorem being asserted rather
-    than assumed.
+    T has axes (section, grade, reading), and E has axes (section, moment).
+    The result is P = T[..., None] * E[:, None, None, :], with axes
+    (section, grade, reading, moment). Each reading by moment slice is an
+    outer product. verify=True checks its rank with a numerical SVD after
+    excluding rows containing nonfinite entries.
     """
     T = np.asarray(T, dtype=np.float64)
     E = np.asarray(E, dtype=np.float64)

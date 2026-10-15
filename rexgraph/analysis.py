@@ -395,10 +395,7 @@ def analyze(
     alpha_G, alpha_T = rex.coupling_constants
     fiedler_LO_val, fiedler_LO_vec = rex.fiedler_overlap
 
-    # A Fiedler value is an approximate slice: it reports where a linear cut fell
-    # rather than what the cells are, and finding it here cost 9.4s of a 38s call at
-    # nE=2400 through ARPACK's smallest magnitude mode. Off by default. The structural
-    # coordinates that replace it are the channel character (see agent.graph_view).
+    # The additional Fiedler eigensolve runs only when spectral_extras is requested.
     fiedler_L1 = float(rex.fiedler_val_L1) if spectral_extras else 0.0
 
     chain_ok = rex.chain_valid
@@ -625,9 +622,7 @@ def analyze(
 
     # Vertex partition induced by L_O edge partition
     # Majority vote of each vertex's incident relations, read off the stored
-    # incidence. Scanning all nE relations per vertex to find them is O(nV*nE), which
-    # on a 40652 vertex ontology with 151331 relations is 6.2 billion comparisons for
-    # a quantity the complex already carries.
+    # incidence, avoiding an O(nV*nE) scan over all relations for each vertex.
     v2e_ptr, v2e_idx = rex._v2e
     v2e_ptr = np.asarray(v2e_ptr)
     v2e_idx = np.asarray(v2e_idx)
@@ -1262,11 +1257,8 @@ def analyze(
         # Dirac spectrum and graded state
         try:
             total_dim = nV + nE + nF
-            # The dense eigendecomposition of D was 26s of a 38s call at nE=2400, to
-            # report twenty eigenvalues and a kernel count. Twenty eigenvalues need
-            # twenty, taken matrix free off the sparse Dirac. The kernel count is
-            # dim ker(D) = sum of the Betti numbers, an integer the rank tower already
-            # has, so counting |eval| < 1e-8 was deciding topology by magnitude.
+            # Use a bounded sparse spectrum unless full spectral extras are requested.
+            # The exact rank tower supplies the Dirac kernel dimension.
             d_evals = (rex.dirac_eigenvalues if spectral_extras
                        else _dirac_low_spectrum(rex, 20))
             dirac_section = {

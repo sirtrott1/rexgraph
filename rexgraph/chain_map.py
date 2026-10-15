@@ -216,7 +216,7 @@ class GradedMap:
 class ChainMap:
     """Verified finite chain map. Construction always checks, never trusts a flag.
 
-    Residuals are exact max entry norms, not tolerances. The proof is about the
+    Residuals are exact max entry norms, not tolerances. Validation checks the
     captured boundary state; call ``check_state`` before reuse. RCQL and ``then``
     do so automatically. No induced homology matrix or homotopy is constructed.
     """

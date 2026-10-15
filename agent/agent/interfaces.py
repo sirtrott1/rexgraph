@@ -138,7 +138,7 @@ class Connector(Protocol):
                                         face-bound curvatures.
           ==================  ========  ==================================
 
-    Invariants every connector MUST preserve (asserted by the validation
+    Invariants every connector must preserve (asserted by the validation
     harness): **read only** (issues no writes to the source), **structure only**
     (returns topology + labels, never cell/row values), and **∂²=0** whenever
     ``faces`` are supplied. Customer/proprietary connectors live *outside* the

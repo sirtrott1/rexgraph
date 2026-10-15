@@ -1,20 +1,9 @@
-"""Equiweight: the derived axiom, and what it is good for.
+"""Check the grading anticommutator and the assembled Dirac spectrum.
 
-    Gamma D + D Gamma = 0,      Gamma = diag((-1)^grade)
-
-Derived from the chain condition and the definition of D, not assumed. The proof is one
-line of block bookkeeping: (Gamma D)[d-1,d] = (-1)^{d-1} B_d and (D Gamma)[d-1,d] =
-(-1)^d B_d, so the blocks cancel. D connects only consecutive grades, and consecutive
-grades have opposite parity, so every block of the anticommutator vanishes.
-
-It is exactly zero on any relational complex, which makes measuring it on one vacuous.
-The content is the contrapositive: an operator that does NOT satisfy it is not a graded
-Dirac, and the residual is a distance from being one. That is the only interesting way to
-call it, and it is why the measurement takes an arbitrary operator rather than a RexGraph.
-
-Lem 4.8 is the consequence worth having: equiweight forces the Hodge symmetry
-dim K^{p,q} = dim K^{q,p}, i.e. D's nonzero spectrum is symmetric about 0, because Gamma
-conjugates D to -D and therefore pairs every eigenvector with one of opposite sign.
+Gamma assigns alternating signs to consecutive grades. The tests compare
+the constant graph residual with Gamma D + D Gamma from the assembled
+operator, verify matching positive and negative eigenvalue counts and
+measure residuals after adding entries between grades of the same parity.
 """
 
 import numpy as np
@@ -74,7 +63,7 @@ def test_the_grading_alternates_by_grade(name):
         assert np.all(g[nV + nE:] == 1)
 
 
-#### Lem 4.8: the consequence
+# Paired nonzero Dirac modes
 @pytest.mark.parametrize("name", list(FIXTURES))
 def test_hodge_symmetry_of_the_dirac_spectrum(name):
     """Gamma D Gamma = -D, so lambda is an eigenvalue iff -lambda is. This is what

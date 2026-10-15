@@ -106,7 +106,7 @@ def relate_query_to_doc(query_ec, doc_rex, doc_meta: dict) -> dict[str, Any]:
             if l in dset:
                 shared.append(l); idx_doc.append(dset[l])
 
-    # Coherence κ at ONLY the shared query concepts, by demand driven diffusion -
+    # Coherence κ at only the shared query concepts, by demand driven diffusion -
     # propagate from the relevant vertices instead of enumerating the whole document
     # complex's per vertex coherence just to read a handful of entries.
     doc_idx = np.asarray([int(idx_doc[k]) for k in range(len(shared))], dtype=int)
@@ -170,25 +170,12 @@ def _best_sentences(text: str, query_tokens: set, k: int = 2) -> list[str]:
 
 
 def retrieve_closure(rex, seeds, *, labels=None, max_depth: int = 8) -> dict:
-    """The smallest subcomplex after which more context stops changing the answer.
+    """Collect relation neighborhoods reached by each seed's closure calculation.
 
-    Ranking answers "which items are most like the query". This answers a different
-    question: "what is the whole of what this complex says about these entities, and how
-    do I know I have all of it". No top_k, because top_k is a number someone picked; the
-    boundary here is where the reading stops moving, which is a property of the entities
-    and the structure around them.
-
-    Each seed's closure is taken separately and the union returned, with the per seed
-    depths kept. A seed that closes at depth 1 and one that needs depth 3 are different
-    facts about those entities and averaging them away would lose the more interesting
-    one: on real binding data a self contained target closed at 1 while a target whose
-    ligands are shared closed at 2, having acquired six independent cycles on the way.
-
-    The audit trail is the point. `steps` carries the shape at every depth, so a caller
-    can see what arrived when, and `betti` says whether the evidence CLOSES: a tree is
-    facts hanging off the seed, a cycle is facts corroborating each other through a
-    second path. That is an explicit, inspectable context structure rather than a
-    similarity that cannot be interrogated.
+    The function calls ``semantic_closure`` separately for each seed up to ``max_depth``
+    and returns the union of reached relations. Each seed retains its convergence
+    status, depth and step diagnostics, so callers can inspect how its neighborhood
+    expanded and whether the configured depth was sufficient.
     """
     from rexgraph.tower import semantic_closure
 
@@ -328,7 +315,7 @@ def _sections_by_field(doc, rec, qec, k, *, channels=False):
     scans the text and nothing is re segmented: the spans were computed once at ingest
     and the prose is fetched by seek.
 
-    Returns a list of `{section_id, layer, span, response, mass, proof_len, text}`, or
+    Returns a list of `{section_id, layer, span, response, coverage, channels, channel_names, reading, agree, text}`, or
     None when the record carries no sectioning to look up.
     """
     import numpy as np
@@ -420,15 +407,11 @@ def _sections_by_field(doc, rec, qec, k, *, channels=False):
 
 
 def _field_candidates(store, q_tokens: set, limit: int, prefix: str = ""):
-    """Candidate records, ordered by the index complex's own response to the query.
+    """Return candidate records ordered by the index response to query tokens.
 
-    Returns None when the store has no index complex to read (a MemoryStore, a store
-    whose snapshot has not been compacted), so the caller falls back to the scan.
-
-    This replaces `_signature_affinity`, which scored candidates off `labels_sample`,
-    twelve entries, and therefore returned 0.0000 for essentially every record on the
-    Gutenberg store, leaving the order arbitrary. A sample cannot rank a corpus. The
-    field can, because the index carries every record's full accession.
+    The index supplies full record accessions for query seeding. Returns None
+    when no index snapshot is available, allowing the caller to use its scan
+    and per document scoring path.
     """
     snap = getattr(getattr(store, "_idx", None), "_snap", None)
     if not isinstance(snap, dict) or not snap.get("n"):
@@ -440,9 +423,7 @@ def _field_candidates(store, q_tokens: set, limit: int, prefix: str = ""):
         # existence uses the binary incidence pattern.
         mass, _ids2 = ix.record_response(snap, q_tokens, reading="existence")
     except Exception:
-        # A silent None here means the caller falls back to the scan, 88 s against
-        # 1.2 s, an eighty fold regression that looks like nothing. A CSC/CSR mixup
-        # making `deg` per relation is the shape this hides, so it is logged.
+        # Report prefilter failures before falling back to a full document scan.
         logger.warning("field prefilter unavailable, falling back to the scan",
                        exc_info=True)
         return None
@@ -582,26 +563,8 @@ def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
         # its best answering section, and those same sections are what comes back.
         # Scoring separately would be a second reading of the same field.
         #
-        # This replaces `score_document` -> `interfacing_score` -> `coherence_response`,
-        # which was the retrieval path's actual bottleneck: it builds the sparse character
-        # channels and runs block CG PER CANDIDATE, and a stack dump during a hung query
-        # landed in `build_sparse_channels` or `_block_cg` every time. It was also the
-        # wrong reading. Measured, the section field ranks the section a query was lifted
-        # from first 86.5% of the time; a label overlap score cannot see the construction
-        # at all, because clique, spanning and branching share one vertex set.
-        # EACH GRADE DOES ITS OWN JOB, and both halves are measured.
-        #
-        # The document's rank comes from the CORPUS complex: `_field_candidates`
-        # already ordered the records by the index field's response, which put the right
-        # book at rank 1, 1, 2, 3 and 7 on five title queries over 61,353 documents. Its
-        # sections come from the DOCUMENT complex, where `_sections_by_field` ranks the
-        # section a query was lifted from first 86.5% of the time.
-        #
-        # Re deriving a document score inside the document is the mistake: the section
-        # field is excellent at "where in this book" and weak at "which book", measured
-        # at 24.5% top 1 cross document against 86.5% within document. A store with no
-        # index complex has no corpus grade reading available, so it keeps
-        # `score_document`: that is a real fallback, not a legacy path.
+        # The index response ranks records. Each record's section response
+        # ranks its own spans. Stores without an index use score_document.
         got = _sections_by_field(doc, rec, qec, n_sent_pre)
         rank_score = (field_score.get(rec.id) if field_score is not None
                       else score_document(doc, qec, q_chi, mode))
@@ -781,14 +744,26 @@ def synthesize(query: str, doc_summary: str, sections: list[dict],
 
 # orchestration + cache
 
-def _cache_key(doc_meta: dict, query: str, top_k: int, corpus_id: str = "") -> str | None:
+def _cache_key(doc_meta: dict, query: str, top_k: int, corpus_id: str = "", *,
+               doc_rex=None, doc_summary: str = "", section_sentences: int | None = None) -> str | None:
+    """Identify document state and every retrieval parameter used by a structural answer."""
     try:
         from agent import cache
+        from rexgraph.io._compat import dumps
         basis = (doc_meta or {}).get("source_text", "") or corpus_id
         if not basis:
             return None
-        return cache.content_key(basis, depth="chat",
-                                 extra=f"{query}|{top_k}|{corpus_id}")
+        state = None
+        if doc_rex is not None:
+            from rexgraph.state import to_state
+            from rexgraph.object_identity import state_object_digest
+            state = state_object_digest(to_state(doc_rex))
+        parameters = {"query": query, "top_k": top_k, "corpus_id": corpus_id,
+                      "document": doc_meta, "state": state, "summary": doc_summary,
+                      "section_sentences": SECTION_SENTENCES if section_sentences is None
+                      else max(1, int(section_sentences))}
+        return cache.content_key(basis.encode("utf-8"), depth="chat",
+                                 extra=dumps(parameters, nan="raise", sort_keys=True))
     except Exception:
         return None
 
@@ -799,46 +774,26 @@ def answer_query(doc_rex, query: str, results: dict | None = None, *,
                  doc_summary: str = "",
                  section_sentences: int | None = None,
                  store=None) -> dict[str, Any]:
-    """End to end structural answer for a chat query.
+    """Build a query complex, retrieve sections and synthesize a supported answer.
 
-    Builds the query complex, retrieves resonant sections from the
-    document/corpus, synthesizes an answer (model or structural), and
-    caches the result.
-
-    `store` is an RCStore to answer from, and `retrieve_sections` already ranks it ahead
-    of a `CorpusBuilder` and a single document, falling through when it holds nothing for
-    the query. Without it a caller can only reach what is in memory: the chat route had
-    no way to pass one, so a persisted corpus of any size was unreachable from a
-    conversation no matter what had been ingested into it.
+    Retrieval checks the supplied store, corpus and document in that order.
+    Deterministic single document answers may be reused when document state and
+    retrieval parameters match. Mutable stores, corpora, configured generation
+    models and lexical answers bypass this response cache.
     """
     doc_meta = doc_meta or (getattr(doc_rex, "_agent_meta", {}) if doc_rex is not None else {})
-    corpus_id = getattr(corpus, "corpus_id", "") if corpus is not None else ""
-    if store is not None and not corpus_id:
-        # the cache key has to name the SOURCE, or an answer from the store and an answer
-        # from a local document collide on the same query text
-        corpus_id = f"store:{getattr(store, 'root', None) or getattr(store, 'backend', 'rc')}"
-
-    key = _cache_key(doc_meta, query, top_k, corpus_id) if use_cache else None
-    if key:
+    key = None
+    if use_cache and store is None and corpus is None:
         try:
-            from agent import cache
-            hit = cache.get(key)
-            if hit and "answer" in hit:
-                hit["cached"] = True
-                return hit
+            from agent import chat_model
+            if not chat_model.is_available():
+                key = _cache_key(doc_meta, query, top_k, doc_rex=doc_rex,
+                                 doc_summary=doc_summary, section_sentences=section_sentences)
         except Exception:
             pass
 
-    # THE EXACT ANSWERERS FIRST. An exact method is exact because it is specific to a
-    # structure, so the question goes to the structure that makes it exact rather than to
-    # one mechanism stretched over everything. The lexicon's relations ARE predications:
-    # `hypernym` is is-a, so "what does X mean" is answerable there and is not answerable
-    # from a corpus of co occurrence, which returns whaling narratives instead.
-    #
-    # Each DECLINES anything it cannot support, and declining costs nothing: an answerer
-    # checks its own interface before touching its structure, so a non lexical query never
-    # loads a lexicon. The passages below still run either way: the composition is a
-    # union of exact answers, not a choice between them.
+    # Collect supported structured answers before passage retrieval. Answerers
+    # decline unsupported queries and load their resources only when required.
     exact = None
     with contextlib.suppress(Exception):
         from agent.answerers import exact_answers
@@ -854,6 +809,16 @@ def answer_query(doc_rex, query: str, results: dict | None = None, *,
                 "answers": got,
             }
 
+    if key and exact is None:
+        try:
+            from agent import cache
+            hit = cache.get(key)
+            if hit and "answer" in hit:
+                hit["cached"] = True
+                return hit
+        except Exception:
+            pass
+
     q_rex, q_ec = build_query_rex(query)
     q_sig = query_signature(q_rex, q_ec) if q_ec is not None else {"n_concepts": 0}
 
@@ -864,9 +829,7 @@ def answer_query(doc_rex, query: str, results: dict | None = None, *,
 
     answer, model_used, token_metrics = synthesize(query, doc_summary, sections, relation)
 
-    # The exact answer LEADS, and the passages stay beneath it as what the corpus
-    # separately supports. Union, not replacement: the lexicon answered a definitional
-    # question exactly and the corpus can still say where the term is used.
+    # Retain structured answers and retrieved passages with their separate sources.
     if exact is not None:
         answer = (f"{exact['text']}\n\n[{exact['source']}, {exact['kind']} of "
                   f"{exact['subject']!r}]"
@@ -885,11 +848,14 @@ def answer_query(doc_rex, query: str, results: dict | None = None, *,
         "cached": False,
     }
 
-    if key and not model_used:
-        # only cache deterministic (structural) answers; model answers may vary
+    if key and exact is None and not model_used:
         try:
             from agent import cache
-            cache.set(key, payload)
+            # A document changed during retrieval must not publish under its earlier key.
+            current_key = _cache_key(doc_meta, query, top_k, doc_rex=doc_rex,
+                                     doc_summary=doc_summary, section_sentences=section_sentences)
+            if current_key == key:
+                cache.set(key, payload)
         except Exception:
             pass
     return payload

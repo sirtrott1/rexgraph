@@ -15,8 +15,7 @@ matched as one relation of arity k, not as a set of pairs.
 takes dense `B_1`, scans every vertex per edge to find endpoints, and identifies them
 with `abs(B1[v, e]) > 0.5`. A branching column carries `1/(k-1)`, which is exactly 0.5
 at k=3 and smaller above, so that test sees only the distinguished vertex and every
-share is invisible to it: a k-ary relation reads as touching one vertex. Measured at
-k = 2, 3, 4, 5.
+share is invisible to it. The relation join below reads every stored participant.
 
 The chain condition is preserved rather than assumed. A face survives only when every
 relation it bounds survives, so its column remaps intact, and `B_1 B_2 = 0` continues to

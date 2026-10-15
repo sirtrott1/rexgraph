@@ -9,8 +9,6 @@ Planning reads only. Nothing is installed and nothing is written until asked,
 which matters most on the machine where you are only looking.
 """
 
-import os
-
 import pytest
 
 from agent import quickstart
@@ -144,18 +142,19 @@ def test_running_the_plan_ingests_builds_and_persists(corpus_dir):
     assert out["store"].get(out["ids"][0]) is not None
 
 
-def test_the_store_is_left_indexed_so_the_next_open_is_fast(corpus_dir):
-    """The pipeline ends here, which is the one moment the snapshot is certainly
-    worth its cost."""
+def test_ingested_records_are_queryable_after_reopening_the_native_store(corpus_dir):
+    """The saved records and their searchable labels survive a fresh store handle."""
     from agent import rcdb
 
     p = quickstart.plan(str(corpus_dir))
     out = quickstart.run(p)
-    if out["store"].backend != "rex":
-        pytest.skip("only the embedded store carries a tensor index")
-    assert os.path.exists(out["store"]._index_path)
+    out["store"].close()
     again = rcdb.open_store(p.store_uri)
-    assert again._index is not None
+    try:
+        assert sorted(record.id for record in again.list(limit=999)) == sorted(out["ids"])
+        assert again.query(labels_any=["boundary"], limit=5)
+    finally:
+        again.close()
 
 
 def test_the_result_is_immediately_queryable(corpus_dir):

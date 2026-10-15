@@ -188,12 +188,12 @@ async def trustgraph_assess(body: dict = Body(...)):
 @router.post("/huggingface/analyze")
 async def huggingface_analyze(body: dict = Body(...),
                               token: TokenEntry = Depends(require_auth)):
-    """Measure RCF axiom compliance.
+    """Measure boundary closure and grading residuals.
 
     With ``model``: hooks a HuggingFace transformer and measures how far
     its attention structure departs from a valid relational complex
     (∂²=0 / chain condition, equiweight). Without ``model``: analyzes the
-    text's co occurrence complex and reports its axiom compliance, clearly
+    text's co occurrence complex and reports those residuals, clearly
     labeled as ``mode: text_cooccurrence`` so it's not mistaken for a
     transformer probe. Accepts ``session_id`` in place of ``text``.
     """
@@ -216,7 +216,7 @@ async def huggingface_analyze(body: dict = Body(...),
             raise HTTPException(
                 500, "Transformer analysis needs torch + transformers. "
                 "Install with: pip install torch transformers "
-                "(or omit 'model' for text-level axiom analysis).") from exc
+                "(or omit 'model' for text structure analysis).") from exc
         try:
             result = analyze_transformer(model_name=model_name, text=text,
                                          device=body.get("device", "cuda"))
@@ -227,7 +227,7 @@ async def huggingface_analyze(body: dict = Body(...),
         except Exception as e:
             raise HTTPException(500, f"Transformer analysis failed: {e}") from e
 
-    # Standalone: axiom compliance of the text's co occurrence complex.
+    # Standalone: operator residuals of the text's co occurrence complex.
     rex, source = _rex_from_body(body)
     if rex is None:
         raise HTTPException(400, f"No input: {source}")
@@ -254,10 +254,10 @@ async def huggingface_analyze(body: dict = Body(...),
         except Exception:
             pass
         result["note"] = ("Pass 'model' (with torch+transformers) to measure a "
-                          "transformer's attention against these axioms.")
+                          "transformer's attention with these operators.")
         return JSONResponse(_sanitize(result))
     except Exception as e:
-        raise HTTPException(500, f"Text axiom analysis failed: {e}") from e
+        raise HTTPException(500, f"Text structure analysis failed: {e}") from e
 
 
 # LangChain
@@ -558,8 +558,8 @@ def _confidence_report(rex) -> dict:
 async def langchain_confidence(body: dict = Body(...)):
     """Run RexConfidenceTool against a session document or text.
 
-    Gives an agent an exact structural confidence signal (void affinity,
-    dipole ratio, coherence, chain condition): a theorem, not a guess.
+    Reports void affinity, dipole ratio, coherence and the chain residual
+    for the supplied complex. These describe represented structure.
     No langchain install required to call it.
     """
     rex, source = _rex_from_body(body)

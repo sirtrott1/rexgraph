@@ -332,6 +332,7 @@ def test_sealed_statistics_prune_null_chunks_and_hide_member_facts(tmp_path):
 
 
 def test_plain_safetensor_query_session_matches_encrypted_api(tmp_path):
+    pytest.importorskip("safetensors", reason="this format requires rexgraph[io]")
     rex = RexGraph.from_graph([0], [1])
     row_id = np.arange(12, dtype=np.int32)
     values = np.arange(24, dtype=np.float32).reshape(12, 2)
@@ -696,6 +697,7 @@ def test_temporal_fingerprint_extra_and_generic_routes_do_not_bypass(tmp_path):
 
 
 def test_plaintext_compatibility_keeps_native_tensor_names(tmp_path):
+    pytest.importorskip("safetensors", reason="this format requires rexgraph[io]")
     rex = RexGraph.from_graph([0, 1, 2], [1, 2, 0])
     path = tmp_path / "plain.safetensors"
     save_safetensors(path, rex)

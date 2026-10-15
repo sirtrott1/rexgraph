@@ -518,7 +518,7 @@ cdef _dense_psd_pinv_apply(A, b):
 
     Three readings in order, each exact for the case it claims:
 
-    1. `A` positive definite: `A^+ = A^-1`, and one Cholesky both proves it and solves.
+    1. `A` positive definite: `A^+ = A^-1`, and a Cholesky factorization followed by a triangular solve applies its inverse.
     2. `A` a Laplacian: its kernel is the component indicators, so the harmonic-
        complement inverse `(A + Pi_h)^-1 - Pi_h` applies. The frame is VERIFIED against
        `A` first: a component frame that is not actually in the kernel would deflate the

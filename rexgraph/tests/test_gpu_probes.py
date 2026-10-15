@@ -1,15 +1,8 @@
-"""Hardware detection is a registry, so a machine this has never seen can be added.
+"""Check GPU probe registration and device memory classification.
 
-The probe lives in core: whether a device's memory is unified with system RAM is a
-fact about the machine, and the coordinator needs it for bus topology.
-
-Four probes ship. Only amdgpu is MEASURED (a Strix Halo 8060S); intel, nvidia and apple
-are written from each driver's documented contract and have not been run on that
-hardware, which the registry reports rather than leaving the reader to assume.
-
-The point of the registry is that none of that is a ceiling: a vendor, an accelerator, or
-a machine that simply knows its own answer can register a probe from outside without
-editing the module.
+Synthetic sysfs and driver fixtures exercise the declared probe contracts,
+confidence labels and unified or discrete memory layouts. Applications can
+register additional probes without changing the built in registry.
 """
 import pytest
 
@@ -29,6 +22,19 @@ def test_the_shipped_probes_declare_how_far_they_were_verified():
     assert probes["amdgpu"] == "measured"
     for other in ("intel", "nvidia", "apple"):
         assert probes[other] == "reasoned", other
+
+
+def test_drm_connectors_do_not_duplicate_gpu_cards(monkeypatch, tmp_path):
+    import glob
+    paths = []
+    for name in ('card0', 'card0-DP-1', 'card1', 'card1-HDMI-A-1'):
+        device = tmp_path / name / 'device'
+        device.mkdir(parents=True)
+        (device / 'uevent').write_text('DRIVER=amdgpu\nPCI_ID=1002:1586\n')
+        paths.append(str(device))
+    monkeypatch.setattr(glob, 'glob', lambda pattern: paths)
+    cards = LR._drm_cards(lambda driver: driver == 'amdgpu')
+    assert [path for path, _, _ in cards] == [paths[0], paths[2]]
 
 
 def test_a_third_party_probe_is_used():
@@ -78,9 +84,8 @@ def test_a_probe_result_is_filled_out_even_when_sparse():
 
 #### the memory test itself
 def test_the_exact_identity_decides_before_any_ratio():
-    """gtt == MemTotal is an identity, not a threshold: the GPU addresses all of system
-    memory, so its pool is a carveout of it. This is what fires on the measured host."""
-    ram = 130452873216
+    """Equal GTT and system memory sizes select unified memory in a synthetic fixture."""
+    ram = 128 * 1024 ** 3
     unified, why = LR._unified_from_memory(4 * 1024 ** 3, ram, ram)
     assert unified is True
     assert "exactly" in why
@@ -99,8 +104,7 @@ def test_the_ratio_is_a_fallback_and_says_so():
 
 @pytest.mark.parametrize("vram_gb,ram_gb", [(24, 64), (20, 64), (8, 32), (16, 32)])
 def test_dedicated_pools_read_as_split(vram_gb, ram_gb):
-    """REASONED, not measured: no dGPU on this host. If a desktop reads wrong, this is
-    the branch to check."""
+    """Synthetic dedicated memory pools select the discrete memory classification."""
     ram = ram_gb * 1024 ** 3
     unified, why = LR._unified_from_memory(vram_gb * 1024 ** 3, int(ram * 0.5), ram)
     assert unified is False, why

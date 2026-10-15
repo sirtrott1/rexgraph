@@ -9,6 +9,8 @@ agent.server.security: security utilities for production deployment.
 
 from __future__ import annotations
 
+from agent.data_paths import config_root
+
 import logging
 import os
 import tempfile
@@ -115,10 +117,7 @@ def generate_self_signed_cert(cert_dir: str | None = None) -> dict:
             "alternative": "Use Let's Encrypt with certbot, or a reverse proxy (nginx/caddy)",
         }
 
-    cert_dir = cert_dir or os.path.join(
-        os.environ.get("REXGRAPH_CONFIG_DIR", str(Path.home() / ".config" / "rexgraph")),
-        "tls",
-    )
+    cert_dir = cert_dir or str(config_root() / "tls")
     os.makedirs(cert_dir, exist_ok=True)
 
     key_path = os.path.join(cert_dir, "key.pem")
@@ -196,8 +195,7 @@ def get_https_config() -> dict:
             raise ValueError("configured TLS requires existing certificate and private key files")
         return {"ssl_certfile": cert, "ssl_keyfile": key}
 
-    config_dir = os.environ.get("REXGRAPH_CONFIG_DIR",
-        str(Path.home() / ".config" / "rexgraph"))
+    config_dir = str(config_root())
     cert_path = os.path.join(config_dir, "tls", "cert.pem")
     key_path = os.path.join(config_dir, "tls", "key.pem")
 

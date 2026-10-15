@@ -1,22 +1,8 @@
-"""
-agent.connectors.validate: the validation harness.
+"""Validate connector output, serialization and relational complex invariants.
 
-Runs a connector against a source and reports, check by check, whether its
-output is a well formed relational complex that stores and round trips and
-preserves the sovereign engine invariants. The point is to turn an integration
-from a research project into a **known, testable quantity**: a pass/fail report
-an integrator can attach to a fixed price quote.
-
-Programmatic (test util):
-
-    from agent.connectors.validate import validate_connector
-    report = validate_connector(MyConnector(), my_source)
-    assert report.ok
-
-CLI:
-
-    python -m agent.connectors.validate my.module:MyConnector            # no source
-    python -m agent.connectors.validate my.module:make_connector source  # factory
+``validate_connector(connector, source)`` returns a report with individual checks
+and an aggregate ``ok`` result. The command line interface accepts an importable
+connector class or factory and an optional source.
 """
 
 from __future__ import annotations
@@ -142,7 +128,7 @@ def validate_connector(connector: Any, source: Any = None,
     # 6. read only probe
     # Concrete, in sandbox checks: the connector is deterministic (reading
     # twice yields the same structure: a writing connector that mutated the
-    # source would drift) and exposes no write surface. Proving read only
+    # source would drift) and exposes no write surface. Checking read only access
     # against a *live* source is a per integration review item in the host env.
     try:
         rex2, meta2 = connector.read(source)

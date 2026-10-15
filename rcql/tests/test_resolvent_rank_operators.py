@@ -32,7 +32,7 @@ def _declared(rex):
         CoordinateMetric.diagonal(spaces[2], [Q(5, 3)])))
 
 
-def test_text_reproduces_the_weighted_pagerank_of_the_paper():
+def test_text_returns_expected_weighted_pagerank():
     out = Executor(sources={"r": _path()}).execute(parse(
         'FROM $r RETURN RESOLVENT_RANK(0, INDICATOR(CELL(0, 0)), 1/2, "walk"), RESOLVENT_RANK(0)'))
     assert list(out.values[0].values) == [Q(5, 9), Q(1, 3), Q(1, 9)]

@@ -19,7 +19,7 @@ dependencies = ["rexgraph>=1.3.1", "numpy>=1.24", "safetensors>=0.3"]
 [project.optional-dependencies]
 # The older index matrix and document search APIs use SciPy sparse matrices.
 # Native records, versioning and protected search relations do not require it.
-scipy = ["scipy>=1.10"]
+scipy = ["scipy>=1.13"]
 sql = ["sqlalchemy>=2.0"]
 objectstore = ["fsspec>=2023.1"]
 crypto = ["cryptography>=42"]

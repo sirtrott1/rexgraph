@@ -313,8 +313,7 @@ def test_the_deviation_is_exactly_chi_over_E():
 
 
 def test_a_triangulated_sphere_has_degree_deficit_twelve_over_V():
-    """6 - d = 6 chi / V, so on a sphere the deficit is exactly 12/V at every level of
-    refinement. Measured on the subdivision sequence 4, 8, 20, 56."""
+    """The listed spherical triangulation counts give a degree deficit of 12/V."""
     for V, E in [(4, 6), (8, 18), (20, 54), (56, 162)]:
         assert 6 - Fraction(2 * E, V) == Fraction(12, V)
 
@@ -355,7 +354,7 @@ def test_the_cr_violation_separates_different_one_skeletons():
                       targets=np.array([1, 2, 3, 4, 5, 6], dtype=np.int32)), "tree"),
 ], ids=["tetra", "C4", "path", "tree"])
 def test_mean_c_squared_is_three_on_a_pairwise_complex(build, name):
-    """A measured pattern over pairwise complexes, not a proof. Per relation c2 ranges
+    """Check the observed bounds on the selected pairwise complexes. Per relation c2 ranges
     over 2 to 4 while the mean sits exactly on 3."""
     lf = build().lagrangian_fields()
     assert float(np.mean(lf["c2"])) == pytest.approx(3.0, abs=1e-9)

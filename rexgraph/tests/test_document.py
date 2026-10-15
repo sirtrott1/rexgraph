@@ -3,7 +3,7 @@
 The load bearing test here is the alignment one. `from_text` drops a sentence that fails
 its filters, so group j is not sentence j, and aligning spans by position silently
 misaddresses everything after the first drop: a section would then point at another
-sentence's bytes and every proof and citation built on it would be confidently wrong.
+sentence's bytes and every inclusion check and source citation would refer to the wrong text.
 """
 from __future__ import annotations
 from rexgraph.state import semantic_header
@@ -198,7 +198,7 @@ def test_asking_for_a_layer_the_document_lacks_names_what_it_has(doc):
         document_sections(rex, "stanza")
 
 
-# spans are BYTE offsets, and only a multi byte text proves it
+# spans are BYTE offsets, and multi byte text exercises that distinction
 
 _UNICODE = (
     "The narrator said “this is a curly quotation” quite deliberately here. "
@@ -349,10 +349,11 @@ def test_section_response_finds_the_section_a_query_was_lifted_from():
 
 
 def test_inverse_degree_seeding_is_what_makes_it_work():
-    """A word in most sentences says nothing about WHERE. Weighting each seed by 1/deg
-    is a structural statement, not a threshold, and it is the difference between a
-    working lookup and one that ranks by length: measured on a book, median rank 2 with
-    it and 38-42 without."""
+    """Check inverse degree query seeding on a generated document.
+
+    Terms present in many sections receive smaller weights. The fixture
+    checks that section selection responds to its distinctive query terms.
+    """
     import re
 
     import numpy as np
@@ -458,12 +459,12 @@ def test_every_layer_still_covers_the_same_cells():
 
 
 def test_both_propagators_find_the_section_and_the_boundary_one_is_free():
-    """`section_response` carries two readings, not one made faster: "rl4" runs
-    S0 = B1 f(RL4) B1^T and "boundary" applies L0 = B1 B1^T matrix free. Measured over 46
-    identical queries on 10 Gutenberg documents they agree exactly (97.8% top 1, 100%
-    top 5, median rank 1) at 115.4 s against 0.1 s, so "boundary" is the default. RL4 is
-    not affordable at document scale because a common word puts most spans in contact with
-    most others: 15 to 58 million nonzeros at nE 7,000 to 17,000."""
+    """Compare section localization using the two available propagators.
+
+    rl4 applies B1 f(RL4) B1 transpose, while boundary applies B1 B1
+    transpose. The generated document checks that both select its target
+    section and that the boundary path avoids a Green solve.
+    """
     import numpy as np
 
     from rexgraph.corpus_profile import tokenize
@@ -486,18 +487,10 @@ def test_both_propagators_find_the_section_and_the_boundary_one_is_free():
 
 
 def test_the_propagator_is_a_real_switch_and_mass_is_the_default():
-    """Every reading must be reachable and the default must be the edge primary one.
+    """Check that relation mass is the default section response.
 
-    `mass` reads at the relation, which is where the data is, and is exact. `boundary`
-    reads `|B(B^T x)|` at the vertices, which is a derived object over two hops, and is
-    float because its denominators compound through pairs. On 337 queries lifted from
-    14 Gutenberg books of 56 to 104,962 sections: 66.2% top 1 at median rank 1 against
-    12.5% at median rank 20.
-
-    Note what is NOT asserted here: that a second boundary step degrades localisation.
-    That is real but it needs thousands of sections to show, and on a nine section
-    fixture a test would pass or fail for reasons unrelated to the claim. The
-    measurements live in `section_response`'s docstring.
+    The alternate propagator selections remain callable on the same
+    generated document and produce one value for each section.
     """
     import inspect
 

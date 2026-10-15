@@ -86,7 +86,7 @@ def test_dependency_permission_intersection():
     r,s,a,b,f=completed();p=f.compile(b,{'x':Q(1)})
     other=RexGraph.from_cells([2,[[0,1]]])
     # The dependency may be supplied separately from the calculation source.
-    e=Executor(sources={'r':other,'proof':BoundSource(r,SourcePolicy.allow('read'))},params={'x':Q(1)})
+    e=Executor(sources={'r':other,'verification':BoundSource(r,SourcePolicy.allow('read'))},params={'x':Q(1)})
     with pytest.raises(PermissionError,match='intersection'):
         p.execute(e)
 
@@ -203,18 +203,18 @@ def test_historical_compilation_dependency_stays_pinned():
     from rexgraph.tensor_field import FieldSource
     r,s,a,b=fixture();db=open_store('memory://')
     try:
-        db.commit_mutation('proof',r,expected_version=0,tx_time=10,analytics=False)
-        context=SnapshotContext.select(db,(SourceSelection('r','proof'),),cutoff=20)
+        db.commit_mutation('verification',r,expected_version=0,tx_time=10,analytics=False)
+        context=SnapshotContext.select(db,(SourceSelection('r','verification'),),cutoff=20)
         selected=context.sources['r']
         system=SectionSystem.from_sheaf(ExactSheaf(selected.value,grade=1),
-            source=FieldSource(selected.value,'proof',1))
+            source=FieldSource(selected.value,'verification',1))
         f=a.complete(system,*system.pins({(system.recipe.cells[0],'0'):Q(2,7)}))
         e=Executor(sources=context.sources,evidence=context)
         binding=e._planning_binding(parse('FROM $r RETURN 1').source,selected)
         e.params={'f':f,'sources':{'r':binding},'params':{'x':Q(1)}}
         p=e.execute(parse('FROM $r RETURN PROGRAM_FAMILY_COMPILE($f,$sources,$params)')).values[0]
-        db.commit_mutation('proof',r,expected_version=1,tx_time=30,analytics=False)
-        later=SnapshotContext.select(db,(SourceSelection('r','proof',version=2),))
+        db.commit_mutation('verification',r,expected_version=1,tx_time=30,analytics=False)
+        later=SnapshotContext.select(db,(SourceSelection('r','verification',version=2),))
         with pytest.raises(ValueError,match='dependency'):
             p.execute(Executor(sources=later.sources,params={'x':Q(1)}))
         assert p.execute(Executor(sources=context.sources,evidence=context,params={'x':Q(1)})).values==(Q(11,7),)

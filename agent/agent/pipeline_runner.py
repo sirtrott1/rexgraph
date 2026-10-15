@@ -153,6 +153,8 @@ class PipelineRunner:
         max_rechunk: int = 2,
         depth: str = "standard",
         ontology: bool = False,
+        face_selection: str | None = None,
+        reader_options: dict | None = None,
     ) -> PipelineResult:
         """Run the full pipeline.
 
@@ -169,6 +171,12 @@ class PipelineRunner:
         runs after chunking.
         """
         t0 = time.time()
+        self._last_corpus = None
+        if ((texts is None) != (doc_ids is None)
+                or (texts is not None and len(texts) != len(doc_ids))):
+            raise ValueError("texts and doc_ids must be supplied together with equal lengths")
+        if doc_ids is not None and len(set(doc_ids)) != len(doc_ids):
+            raise ValueError("doc_ids must be unique")
         result = PipelineResult()
 
         # Per analysis stage callback -> surfaced as "analysis" phase events
@@ -200,6 +208,8 @@ class PipelineRunner:
             doc_ids if have_texts else None,
             files if have_files else None,
             depth,
+            face_selection=face_selection,
+            reader_options=reader_options,
         )
         if have_files:
             self._emit("read", {"status": "done"})
@@ -317,30 +327,35 @@ class PipelineRunner:
         suffix = p.suffix.lower()
         if suffix in self.OCR_EXTENSIONS:
             text = self._ocr_single_file(path)
-            if text and len(text.strip()) > 10:
-                text = self._sanitize_text(text)
-                ec = None
-                try:
-                    from agent.adapters.ocr import OCRAdapter
-                    ec = OCRAdapter().build_from_text(text, strategy="layout")
-                    if ec is None or ec.nE == 0:
-                        ec = None
-                except Exception as e:
-                    logger.warning(
-                        "OCRAdapter layout failed for %s (%s); "
-                        "using flat text.", p.name, e)
+            text = self._sanitize_text(text)
+            if not text or not text.strip():
+                raise ValueError(f"No readable text was extracted from {path}")
+            ec = None
+            try:
+                from agent.adapters.ocr import OCRAdapter
+                ec = OCRAdapter().build_from_text(text, strategy="layout")
+                if ec is None or ec.nE == 0:
                     ec = None
-                corpus.add_document(
-                    source=path, doc_id=p.stem, text=text,
-                    edge_construction=ec,
-                )
+            except Exception as e:
+                logger.warning(
+                    "OCRAdapter layout failed for %s (%s); "
+                    "using flat text.", p.name, e)
+                ec = None
+            corpus.add_document(source=path, text=text, edge_construction=ec)
         else:
-            corpus.add_document(source=path, doc_id=p.stem)
+            corpus.add_document(source=path)
 
-    def _build_corpus(self, texts, doc_ids, files, depth):
+    def _build_corpus(self, texts, doc_ids, files, depth, *,
+                      face_selection=None, reader_options=None):
         """Build a single corpus from OCR texts and/or direct files."""
         from agent.corpus import CorpusBuilder
-        corpus = CorpusBuilder(max_vocab=self.max_vocab)
+        if reader_options is not None and not isinstance(reader_options, dict):
+            raise TypeError("reader_options must be a dictionary")
+        options = dict(reader_options or {})
+        options.setdefault("max_vocab", self.max_vocab)
+        if face_selection is not None:
+            options["face_selection"] = face_selection
+        corpus = CorpusBuilder(**options)
         if texts and doc_ids:
             for text, doc_id in zip(texts, doc_ids, strict=False):
                 corpus.add_text(text, doc_id=doc_id)
@@ -349,6 +364,10 @@ class PipelineRunner:
         if not corpus.documents:
             return None
         corpus.build(depth=depth, stage_callback=self._stage_callback)
+        failures = [f"{doc.doc_id}: {doc.meta.get('build_error', 'No document relations were constructed')}"
+                    for doc in corpus.documents if doc.rex is None or doc.rex.nE == 0]
+        if failures:
+            raise ValueError("Document construction failed: " + "; ".join(failures))
         self._last_corpus = corpus
         return corpus
 
@@ -370,22 +389,18 @@ class PipelineRunner:
             elif is_image_file(path):
                 return client.ocr_image(path).text
         except Exception as e:
-            logger.warning("OCR failed for %s: %s", path, e)
+            raise RuntimeError(f"OCR failed for {path}: {e}") from e
         return ""
 
     @staticmethod
     def _sanitize_text(text):
-        """Clean OCR output to prevent degenerate co occurrence graphs."""
+        """Normalize OCR whitespace while preserving extracted content."""
         if not text:
             return text
-        text = re.sub(r'[^\x20-\x7E\n\t]', ' ', text)
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
+        text = re.sub(r'[\x00-\x08\x0b-\x1f\x7f]', ' ', text)
         text = re.sub(r'[ \t]+', ' ', text)
         text = re.sub(r'\n{3,}', '\n\n', text)
-        lines = text.split('\n')
-        lines = [ln for ln in lines if len(ln.strip()) > 15 or not ln.strip()]
-        text = '\n'.join(lines)
-        if len(text) > 80000:
-            text = text[:80000]
         return text
 
     def _extract_doc_info(self, corpus):
@@ -493,9 +508,7 @@ class PipelineRunner:
             "context_sufficient": gate["verdict"] != GATE_REFUSE,
         }
 
-        # Refusing here is the whole point of a measured zero: the source shares no
-        # vocabulary with the query, so the model would be answering from itself and
-        # the retrieved context would be decoration on top of that.
+        # Stop when the gate finds no supported relationship between source and query.
         if gate["verdict"] == GATE_REFUSE:
             why = "; ".join(gate["reasons"])
             logger.warning("Context gate refused: %s", why)

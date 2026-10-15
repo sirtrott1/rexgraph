@@ -11,7 +11,7 @@ the boundary column says so. Part of speech tagging and dependency parsing appro
 exactly this, statistically, from labelled corpora; here it is read.
 
 `head_of` is deliberately narrow. A relation of arity k is headed by the token admitting
-a frame of arity k, and it makes a claim ONLY when exactly one token does. Zero is an
+a frame of arity k, and it makes a claim only when exactly one token does. Zero is an
 honest absence (nothing in the span subcategorises for that shape) and several is real
 ambiguity, and neither is something to break by picking. A caller that gets no claim
 keeps positional orientation and records that no frame governed, which is a different

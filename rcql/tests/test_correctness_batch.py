@@ -97,7 +97,7 @@ def test_boundary_block_preserves_shape_without_vector_zero_rewrite(r):
     assert result.exactness == (Exactness.RATIONAL,)
 
 
-def test_unproven_chain_is_not_rewritten(r, monkeypatch):
+def test_unverified_chain_is_not_rewritten(r, monkeypatch):
     import rexgraph.graded_boundary
     monkeypatch.setattr(rexgraph.graded_boundary, '_exact_chain_residual', lambda *a: None)
     face = Chain(2, np.array([1]), source=r)

@@ -6,7 +6,7 @@ corpus could be read AS IT STOOD at a time. What was missing is the other use of
 time: once candidates are structurally scored, preferring evidence that has settled
 over evidence still in dispute, or recent over stale.
 
-Everything here reads STORED SIGNATURES ONLY. `store.history` returns records without
+Everything here reads STORED SIGNATURES only. `store.history` returns records without
 touching a blob, and a signature already carries nV/nE/betti1/kappa_mean per version,
 so a candidate's temporal features cost dict arithmetic. `rcdb.trajectory` answers a
 richer question (it reconstructs a complex per version and runs a cross complex

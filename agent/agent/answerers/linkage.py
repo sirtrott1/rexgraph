@@ -4,20 +4,18 @@ Both sources are labelled groups over words, so one class serves both. Roget rec
 undirected thematic categories; Wiktionary records ten directed link kinds, kept separate
 because merging synonyms with antonyms asserts what neither says.
 
-Reads the source files rather than the stored complexes: `build_lexical_store` drops the
-per group label, so a stored column carries no relation type.
+Loads typed groups from the selected source file and retains each relation kind
+when indexing words for lookup.
 """
 from __future__ import annotations
 
-import os
-
 from agent.answerers import _question as Q
+from agent.data_paths import lexical_path
 
 __all__ = ["LinkageAnswerer", "DEFAULT_ROGET", "DEFAULT_WIKTIONARY"]
 
-_ROOT = "~/projects/rexgraph/data/lexical"
-DEFAULT_ROGET = os.path.expanduser(f"{_ROOT}/thesaurus/rogets-pg22.txt")
-DEFAULT_WIKTIONARY = os.path.expanduser(f"{_ROOT}/wiktionary/wiktionary-en.rexidx")
+DEFAULT_ROGET = str(lexical_path("roget"))
+DEFAULT_WIKTIONARY = str(lexical_path("wiktionary"))
 
 #: question head -> the kind of link it asks for, in the sources' own kind names. Declared
 #: interface. A source keeps only the kinds it actually records, so asking Roget for

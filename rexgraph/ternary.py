@@ -44,12 +44,10 @@ class TernaryOperator:
 
 
     def to(self, device: str = "cuda") -> "DeviceTernary":
-        """Ship the planes once and keep them there.
+        """Transfer packed planes and arities to the selected device.
 
-        Not an optimisation detail. The planes are the whole operator, so a lane that
-        re sends them per product pays the transfer every time and lands at 96
-        Gentry/s where the resident form reaches 599. Anything doing more than one
-        product against the same operator should hold this.
+        The returned DeviceTernary retains those tensors for repeated products,
+        avoiding another operator transfer on every call.
         """
         import torch
         return DeviceTernary(

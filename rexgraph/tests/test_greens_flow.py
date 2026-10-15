@@ -3,7 +3,7 @@
 `coparticipation_adjacency` is |B1|^T|B1| and never touches B2, so a model trained
 through it is blind to every face in the complex. That is measurable rather than
 arguable: the operator is bit identical on an open complex and the same complex closed,
-so an ablation over the two reports the same number for a reason that has nothing to do
+so comparisons across the two return the same operator independently of
 with the data.
 
 `flow_adjacency` is L1_down + alpha * L1_up, so the gradient tier and the curl tier both

@@ -105,7 +105,7 @@ def refine(typed, children, context):
         _nonempty(args[1], "scope")
         _nonempty(args[2], "key_id")
     return [PredicateResult("explicit_artifact_contract", "verified",
-        "bytes are not implicitly encoded; manifests are public descriptions, not authentication proofs"),
+        "bytes are not implicitly encoded; manifests are public descriptions, not authentication records"),
         PredicateResult("artifact_providers", "deferred" if name in OBSERVABLE else "not-required",
         "configured Core providers resolve only at execution; no file or network transfer is implied")]
 

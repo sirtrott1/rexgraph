@@ -1,40 +1,21 @@
-"""The console scripts, which nothing exercised.
+"""Check console entry point imports, help output and argument validation.
 
-Fifteen entry points ship in pyproject and 5,452 lines of the agent were never
-executed by any test. `cli/auth.py` alone is 493 of them, and it is the surface that
-decides who can do what.
-
-These are smoke tests against the real argument parsers: an entry point resolves, it
-answers --help without raising, and it rejects nonsense rather than crashing. That is
-the floor. Anything that needs a server, a model or SLURM is asserted to fail
-cleanly rather than to succeed.
+The tests call the real parsers and verify that unavailable services and invalid
+arguments produce diagnostic output without an uncaught exception.
 """
 from __future__ import annotations
 
 import contextlib
 import importlib
 import io
+from importlib.metadata import distribution
 
 import pytest
 
-#: name -> module:function, read from pyproject's console_scripts
-ENTRY_POINTS = {
-    "rexgraph-ui": ("agent.server.app", "main"),
-    "rexgraph-ocr": ("agent.cli.ocr", "ocr_main"),
-    "rexgraph-test": ("agent.cli.test_all", "main"),
-    "rexgraph-run": ("agent.cli.run_pipeline", "main"),
-    "rexgraph-deploy": ("agent.cli.deploy", "main"),
-    "rexgraph-auth": ("agent.cli.auth", "main"),
-    "rexgraph-serve": ("agent.cli.serve", "main"),
-    "rexgraph-setup": ("agent.cli.setup", "main"),
-    "rexgraph-config": ("agent.cli.config", "main"),
-    "rexgraph-connect": ("agent.cli.connect", "main"),
-    "rexgraph-local": ("agent.local_runtime", "main"),
-    "rexgraph-hive": ("agent.hive", "main"),
-    "rexgraph-models": ("agent.models.cli", "main"),
-    "rexgraph-ops": ("agent.lifecycle", "main"),
-    "rcf-server": ("agent.server.app", "main"),
-}
+# Read installed metadata so newly added commands receive the same checks.
+ENTRY_POINTS = {entry.name: tuple(entry.value.split(":"))
+                for entry in distribution("rexgraph-agent").entry_points
+                if entry.group == "console_scripts"}
 
 
 @pytest.mark.parametrize("name", list(ENTRY_POINTS))
@@ -68,7 +49,7 @@ def _run(fn, argv):
 
 #: entry points whose main() parses argv; excludes the servers, which bind a port
 PARSERS = [n for n in ENTRY_POINTS
-           if n not in ("rexgraph-ui", "rcf-server", "rexgraph-serve", "rexgraph-test")]
+           if n not in ("rexgraph-ui", "rcf-server")]
 
 
 @pytest.mark.parametrize("name", PARSERS)

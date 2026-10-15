@@ -314,15 +314,12 @@ def build_green_cache_spd(np.ndarray[f64, ndim=2] RL,
 
 
 def rl_cg_solve(np.ndarray[f64, ndim=2] RL, np.ndarray[f64, ndim=1] b):
-    """Solve `RL x = b` by Cholesky, falling back to dense SVD least squares.
+    """Solve RL x = b using a dense Cholesky factorization when it succeeds.
 
-    RL is positive definite, so the system has a unique solution and `dpotrf_` both
-    proves that and produces it. The least squares branch is kept for a degenerate or
-    empty RL, where that reading is the only one defined.
-
-    The name is historical: there is no conjugate gradient iteration here, and the cost
-    is a dense factorization. For the matrix free iterative solve use
-    `rexgraph.sparse_character._block_cg`.
+    If the factorization fails, use dense SVD least squares to obtain
+    a minimum norm solution. The implementation performs a factorization,
+    despite the historical function name. For a matrix free iterative
+    solve, use rexgraph.sparse_character._block_cg.
     """
     from rexgraph.core._linalg import spd_solve
     solved = spd_solve(RL, b)
@@ -369,31 +366,19 @@ def build_line_graph(np.ndarray[f64, ndim=2] K1, int nE):
 
 
 def build_L_coPC(line_graph_info):
-    """Combinatorial Laplacian of the WEIGHTED line graph: L_C = D_L - A_L,
-    with A_L[e1,e2] = number of vertices shared by edges e1,e2 (the co participation
-    multiplicity) and D_L = diag(row sums of A_L).
+    """Build the weighted line graph Laplacian L_C = D_L - A_L.
 
-    Uses the combinatorial (unsigned) Laplacian D - A, NOT the topological
-    Laplacian B^T B. The combinatorial form is required for the G = C
-    theorem: on K_k, hat_G = hat_C when BOTH are the combinatorial D - A form
-    (the combinatorial overlap Laplacian and L_C are the same matrix on a simple
-    graph, so hat_G = hat_C to machine precision).
+    A_L[e1,e2] counts the vertices shared by the two source relations;
+    D_L contains the row sums. The returned matrix has zero row sums
+    and is positive semidefinite. Relations may share more than one vertex.
 
-    Caveat, so this is not re derived as a fault: the SHIPPED RL4 G channel
-    (L_O in build_sparse_channels) is NOT this combinatorial form. It is the raw
-    Gramian |B1|^T |B1| (default) or its normalized I - D^-1/2 K D^-1/2 form, kept
-    DISTINCT from L_C on purpose so the four channels are not redundant. So the
-    shipped hat_G differs from hat_C by 1/((k-2)k) on K_k, which is expected. The
-    G = C statement here is about the combinatorial overlap Laplacian only.
+    On a simple graph, this operator agrees with the combinatorial
+    overlap Laplacian. It differs from the unsigned Gram used for the
+    default G channel, whose internal key is L_O. Comparisons between
+    G and C must specify which overlap operator is being used.
 
-    Edge weights are the shared vertex COUNTS (line_graph_info['weights']), so L_C is
-    a proper zero row sum PSD Laplacian at ANY arity, including branching hyperedges
-    where two edges share >1 vertex. On simple graphs every weight is 1, so this is
-    the unit weight form; K_k therefore has equal G and C channels.
-
-    The topological form B1_L^T B1_L differs from ``D_L - A_L`` by introducing
-    orientation dependent signs in the off diagonal entries, producing
-    21 distinct eigenvalues on K_7 instead of the expected 3.
+    The signed line graph boundary Gram includes orientation dependent
+    off diagonal signs and is a different operator.
     """
     cdef int nV_L = line_graph_info['nV_L']
     cdef int nE_L = line_graph_info['nE_L']

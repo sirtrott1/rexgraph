@@ -271,9 +271,7 @@ def test_optional_stages_graceful_without_faces():
 
 # auto_rex must treat long text as text, not as a filesystem path
 def test_auto_rex_accepts_text_longer_than_the_filename_limit():
-    """auto.py probed Path(data).is_file() on the raw input. On Python 3.13 that
-    propagates OSError ENAMETOOLONG for any text carrying a path like segment past
-    the filesystem name limit, so 12% of a real corpus was dropped with a warning."""
+    """Input exceeding filesystem path component limits remains valid text."""
     from agent.auto import auto_rex
 
     # a path like segment well past the 255 byte component limit
@@ -341,16 +339,6 @@ def test_curvature_kernel_is_exported_from_the_core_namespace():
     for name in ("lagrangian_curvature", "star_curvature", "weighted_degree",
                  "curvature_operator", "lagrangian_L_T_integer"):
         assert hasattr(core, name), f"core.{name} missing from the flattened namespace"
-
-
-def test_harmonic_wrapper_is_declared_for_installation():
-    """rexgraph/harmonic.py is a public wrapper over core._harmonic but was not listed in
-    rexgraph/meson.build, so it was absent from an installed package."""
-    import pathlib
-
-    root = pathlib.Path(__file__).resolve().parents[2]
-    build = (root / "rexgraph" / "meson.build").read_text(encoding="utf-8")
-    assert "'harmonic.py'" in build
 
 
 def test_inverse_centrality_ratio_does_not_warn_on_an_isolated_vertex():

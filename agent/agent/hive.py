@@ -417,7 +417,7 @@ class Hive:
                    context=None) -> Bee:
         """Register any callable as a worker member. `handler(data, **kw)` runs the worker's
         capability on structured input. This is the general primitive: a trained NN, a statistical
-        model, a rexgraph analyzer, an embedder, or any inference module becomes a first class hive
+        model, a rexgraph analyzer, an embedder, or any inference module becomes a hive
         member, invoked with invoke() and monitored like any bee. `capability` is one of
         predict/score/embed/analyze/transform (generate is the chat path). `worker_type` names its
         kind for the worker type ontology (':'-scoped, e.g. 'analyzer:stat:logreg'); it defaults to
@@ -608,8 +608,7 @@ class Hive:
         return bee
 
     def observe_bee_rate(self, name: str, tok_s: float) -> None:
-        """Record a bee's measured decode rate, and feed it to the coordinator's batch
-        curve so placement prices THIS machine rather than the seeded one."""
+        """Record a worker's decode rate and update the coordinator's throughput model."""
         bee = self._bees.get(name)
         if bee is None or not (tok_s and tok_s > 0):
             return
@@ -907,15 +906,14 @@ class Hive:
 
     def _run_wave(self, tasks: list) -> dict:
         """Dispatch a wave of {id, kind, fn, weight?} tasks through the coordinator, folding timings
-        into its cost model. NEVER raises: on any failure (or when the coordinator is disabled) it
+        into its cost model. never raises: on any failure (or when the coordinator is disabled) it
         runs the fns serially. Emits a journal event with placement and timings (no content)."""
         from . import activity
         from .coordinator_adapter import work_units
         from .hive_config import coordinator_settings
 
         def _serial(ts: list) -> dict:
-            # per task try/except so one bad fn cannot sink the rest of the wave, and cannot make
-            # _run_wave itself raise: that is the whole point of the fallback.
+            # Isolate each task failure so the remaining serial tasks still run.
             out = {}
             for t in ts:
                 try:
@@ -1251,8 +1249,7 @@ class Hive:
         }
 
     def persist(self, store=None, *, name: str = "hive") -> str | None:
-        """Catalogue the hive's worker type structure in the RCDB by structural signature, so the
-        hive is a first class stored complex (model = memory = database, queryable by topology).
+        """Store the hive's worker type structure as a complex in RCDB for structural queries.
         `store` is an open RCStore or an RCDB uri; omit it to use `rcdb.default_store()` (persistent,
         REXGRAPH_RCDB_URI). Pass memory:// only when a throwaway store is what you want. Returns the record
         id, or None when no typed worker structure exists yet."""

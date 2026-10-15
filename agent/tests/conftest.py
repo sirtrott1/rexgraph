@@ -8,16 +8,25 @@ agent package, so pointing the config dir at a throwaway temp dir here guarantee
 the whole suite stays hermetic. Individual tests may still ``monkeypatch`` it to
 their own ``tmp_path``; that just overrides this (already safe) default per test.
 """
-import atexit
 import contextlib
 import os
 import pathlib
-import shutil
 import sys
-import tempfile
 import types
 
+_test_scripts = str(pathlib.Path(__file__).resolve().parents[2] / "scripts")
+if _test_scripts not in sys.path:
+    sys.path.insert(0, _test_scripts)
+from _rexgraph_test_state import prepare_test_state
+_TEST_HOME = prepare_test_state()
+
 import pytest
+
+
+@pytest.fixture(scope="module")
+def lexical_sources(tmp_path_factory):
+    from _rexgraph_agent_tests.lexical_fixtures import make_lexical_sources
+    return make_lexical_sources(tmp_path_factory.mktemp("lexical-sources"))
 
 
 # rexgraph-rcdb is a sibling distribution. Preferring an installed one and falling back
@@ -41,7 +50,7 @@ def _ensure_sibling(name: str) -> None:
         return
     sys.path.insert(0, str(root))
     # And for CHILD processes: several tests reopen a store from a fresh interpreter,
-    # which is the only way to prove persistence rather than one process's memory. A
+    # which is a check of persistence rather than one process's memory. A
     # sys.path insert does not reach them, so the environment has to carry it.
     existing = os.environ.get("PYTHONPATH", "")
     parts = [p for p in existing.split(os.pathsep) if p]
@@ -79,16 +88,10 @@ if _bound is not None and getattr(_bound, "__file__", None) is None:
 # Set at module import time (before agent.* is imported by any test module) so the
 # import time config dir binding picks up the temp location. Force it: the whole
 # point is that a stray REXGRAPH_CONFIG_DIR pointing at real config can't leak in.
-_TEST_HOME = tempfile.mkdtemp(prefix="rexgraph_test_config_")
-os.environ["REXGRAPH_CONFIG_DIR"] = _TEST_HOME
-
 # The suite drives many endpoints from a single client IP; the global rate limiter
 # would otherwise 429 later tests. Disable it here (the limiter itself is covered
 # by its own dedicated test that configures a low limit on an isolated app).
 os.environ.setdefault("RCF_RATE_LIMIT", "0")
-
-atexit.register(lambda: shutil.rmtree(_TEST_HOME, ignore_errors=True))
-
 
 @pytest.fixture(autouse=True)
 def _isolate_auth_state():

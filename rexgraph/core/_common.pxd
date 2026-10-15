@@ -3,9 +3,8 @@
 """
 Shared declarations for the rexgraph Cython layer.
 
-Every .pyx module in rexgraph.core/ cimports from this file
-to get consistent types, error codes, memory limits, and inline
-utilities.
+Core modules import scalar types, error codes, memory limits and inline
+utilities from this declaration file.
 
 Export rules:
     Anonymous cdef enum values are exportable and work in nogil contexts.

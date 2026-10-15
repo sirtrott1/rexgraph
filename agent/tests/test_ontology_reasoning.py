@@ -333,7 +333,7 @@ def test_no_lifetime_is_an_essential_bar_in_disguise(study):
 
 
 def test_comparing_a_reading_with_itself_is_zero(study):
-    """The metric axiom. Without it the distance means nothing."""
+    """Check that self distance is zero."""
     s = enrich(study, REPAIR[:4])["structure"]
     out = compare(s, s)
     assert out["bottleneck"] == pytest.approx(0.0)

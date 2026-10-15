@@ -182,7 +182,7 @@ def test_rewrite_provenance_carries_the_checked_exact_identity(rex):
     assert result.provenance[0]["execution"]["methods"][0]["method"] == "integer-zero"
 
 
-def test_unverified_chain_is_not_promoted_to_a_proof(rex, monkeypatch):
+def test_unverified_chain_is_not_promoted_to_a_validation(rex, monkeypatch):
     import rexgraph.graded_boundary
     monkeypatch.setattr(rexgraph.graded_boundary, "_exact_chain_residual", lambda *args: None)
     face = Chain(2, np.array([1]), source=rex)

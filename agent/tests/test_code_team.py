@@ -57,7 +57,7 @@ def test_generation_and_evaluation_overlap():
               "tests": [("f()", "1")]} for i in range(3)]
     team.build(tasks)
     intervals.sort()
-    # concurrency, proven without a timing threshold: two generation windows overlap in time
+    # concurrency checked without a timing threshold: two generation windows overlap in time
     assert any(intervals[i][1] > intervals[i + 1][0] for i in range(len(intervals) - 1))
 
 

@@ -286,8 +286,7 @@ def orientation_holonomy(rex, *, grade: int = 2) -> dict:
     OPPOSITE coefficients on it, which is what coherent orientation means, so the pairwise
     agreement is `-sign(c_a[e] c_b[e])` and the holonomy is its product around a closed
     loop of faces. Each face appears exactly twice in a closed loop, so its sign cancels
-    and the product is invariant. Measured: a tetrahedron boundary reads +1 on every loop
-    under any subset of flips, a five triangle Moebius band reads -1 under any.
+    and the product is invariant under reversal of any face column.
 
     Balanced (+1 everywhere) is exactly coherent orientability, so this MEASURES what
     orienting face by face attempts, and does not need the attempt to succeed in order to
@@ -576,10 +575,8 @@ def cycle_supports(rex):
     either way. `cycle_basis` below goes through the same call, so the two cannot
     disagree about which cycles exist.
 
-    Sparse throughout, because a fundamental cycle touches a path's worth of relations
-    and nothing else. On the Gene Ontology joined with its human annotations that is
-    603819 nonzeros over a 34039 dimensional cycle space; the same basis as dense
-    coefficient vectors is 2.46 billion entries, which is why this exists.
+    Each fundamental cycle stores only the relations on its path. Returning its
+    support avoids allocating a dense nE by cycle dimension coefficient matrix.
     """
     rex._ensure_clean()
     nE = int(rex.nE)

@@ -35,6 +35,14 @@ if HAS_HDF5:
 
 from rexgraph.graph import RexGraph
 
+
+def test_pathlike_load_uses_the_same_path_as_save(tmp_path):
+    path = tmp_path / "pathlike.h5"
+    original = RexGraph.from_graph([0, 1], [1, 2])
+    save_hdf5(path, original)
+    assert load_hdf5(path).relation_supports() == original.relation_supports()
+    assert RexHDF5Format().read(path).nE == original.nE
+
 # Fixtures
 
 @pytest.fixture

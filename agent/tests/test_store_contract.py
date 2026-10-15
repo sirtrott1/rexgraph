@@ -221,9 +221,7 @@ def _rexstore(tmp_path):
 
 
 def test_put_cost_does_not_grow_with_the_store(tmp_path):
-    """FileStore reserialized its whole index on every put, so per put cost rose
-    with the record count: 4 ms at a hundred, 35 ms at sixteen hundred. Quadratic
-    ingest is the difference between minutes and days at consortium scale."""
+    """Check that append costs remain bounded as generated record count increases."""
     store = _rexstore(tmp_path)
     early, late = [], []
     for k in range(600):

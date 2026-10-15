@@ -1,27 +1,16 @@
-"""
-agent.enrichment: which terms a set of entities is concentrated in.
+"""Term enrichment and persistence measurements for a selected entity set.
 
-The standard question. A gene set comes out of an experiment, and the ontology is
-asked which of its terms the set favours. Every tool answers it the same way: apply
-the true path rule so that annotating a term annotates its ancestors, count, run a
-hypergeometric test per term, correct for multiplicity, sort by p.
+Annotations propagate to ancestor terms along the configured hierarchy
+relations. The enrichment calculation counts annotated entities in the
+study set and background, evaluates a hypergeometric tail for each term
+and applies a multiple testing correction. Counts come from the joined
+knowledge complex.
 
-That answer is computed here, exactly, because it is the number people know how to
-read and refusing to produce it would not be an improvement. It is computed on the
-same complex that carries everything else, so the counts come from the joined
-structure rather than from a separate annotation table.
-
-Then the same input is read a second way. A p-value is one threshold; a filtration is
-every threshold at once. Ordering the complex by how strongly each relation is
-implicated and taking persistence gives the structure of the answer: which groupings
-appear, how long they survive as the threshold moves, and whether the set is
-concentrated in one region or scattered across several. `bottleneck_distance` then
-compares two experiments with a stability theorem behind it, which a list of p-values
-does not have.
-
-Both readings are returned. The first is comparable to what a reviewer expects; the
-second is what the extra structure buys, and keeping them side by side is the only
-way to tell whether it bought anything.
+The same input also supplies a filtration. Relations are ordered by the
+fraction of their endpoints in the study set, and persistence records
+components and cycles across that ordering. Returned diagrams can be
+compared with bottleneck_distance. Both the enrichment table and the
+structural measurements are returned so callers can inspect them together.
 """
 
 from __future__ import annotations
@@ -207,13 +196,12 @@ def enrich(knowledge, study_set, *, universe=None, min_term_size: int = 1) -> di
 
 
 def structural_reading(knowledge, study_set) -> dict:
-    """The same question as a filtration rather than a threshold.
+    """Measure persistence after ordering relations by study set coverage.
 
-    Each relation is ordered by how much of the study set it touches, and persistence
-    over that order records which groupings appear and how long they survive. The
-    barcode is comparable between experiments under `bottleneck_distance`, which has
-    a stability theorem: a small change in the input moves the diagram by a small
-    amount. A ranked p-value list has no such guarantee.
+    Relations reached by the study set enter the filtration earlier.
+    Persistence records when components and cycles appear and disappear
+    as the threshold changes. The returned diagrams can be passed to
+    bottleneck_distance for comparison with another input set.
     """
     try:
         rex = knowledge.rex(face_selection="none")
@@ -262,11 +250,11 @@ def structural_reading(knowledge, study_set) -> dict:
 
 
 def compare(reading_a: dict, reading_b: dict) -> dict:
-    """Distance between two structural readings.
+    """Return bottleneck and Wasserstein distances between finite barcodes.
 
-    Bottleneck distance between the two diagrams. Stable: a bounded perturbation of
-    the input moves this by a bounded amount, which is what makes comparing two
-    experiments meaningful rather than anecdotal.
+    Both inputs are structural_reading results. The function uses their
+    barcodes arrays and reports unavailable when either has no finite
+    features. Distances are evaluated by RexGraph.persistence_distance.
     """
     from rexgraph.graph import RexGraph
 

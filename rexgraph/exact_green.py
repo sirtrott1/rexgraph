@@ -1,19 +1,12 @@
-"""Exact augmented Green solve: the resolvent without assembling L or an inverse.
+"""Exact augmented Green solves without assembling a Hodge product or inverse.
 
-`(I + lambda L_k) x = j` is evaluated by solving one sparse coupled system in the
-auxiliary coordinates of its own definition, over Q. The Hodge product `B* M B`, the
-metric inverse and the resolvent itself are never assembled: the system's coefficients
-are the original boundary and metric maps, their transposes, and rational constants.
+The equation (I + lambda L_k) x = j is evaluated through a sparse coupled
+system over rational numbers. Its blocks use the declared boundary maps,
+grade metric maps, transposes and rational coefficients. Boundary products,
+metric inverses and the full resolvent are applied through those factors.
 
-That is not only cheaper, it is the reason the weighted case is well posed at all.
-Forming `L1w = (B1 W)* (B1 W)` puts the solve on the normal equations, whose range is
-`W . im B1*` while a boundary source lies in the UNWEIGHTED `im B1*`; those coincide
-only at `W = cI`, so under any other weighting the assembled system is inconsistent and
-a conjugate gradient cannot return what the pseudoinverse would. The augmented system
-never forms that product and so never acquires the mismatch. Measured on a unit
-triangle with one weight at 1 + 1e-6, the assembled float path fails outright while
-this returns 8000003/16000008.
-
+Keeping the auxiliary coordinates preserves the declared weighted system
+instead of replacing it with a normal equation on a different range.
 """
 from __future__ import annotations
 

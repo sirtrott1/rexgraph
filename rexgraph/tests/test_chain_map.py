@@ -1,4 +1,4 @@
-"""Exact chain map proofs against independent small dense rational oracles."""
+"""Exact chain map checks against independent small dense rational oracles."""
 from dataclasses import FrozenInstanceError, replace
 from fractions import Fraction as Q
 
@@ -246,11 +246,11 @@ def test_primary_boundary_disagreement_is_not_certified(monkeypatch):
 def test_equal_parallel_columns_do_not_hide_changed_relation_identities():
     rex = RexGraph.from_cells([2, [[0, 1], [0, 1]]], relation_ids=np.array([10, 20]))
     c = CoordinateComplex.from_rex(rex)
-    proof = identity(c).verify()
+    verification = identity(c).verify()
     rex.relation_ids[:] = [20, 10]
     assert CoordinateComplex.from_rex(rex).boundaries == c.boundaries
     with pytest.raises(ValueError, match="boundary state changed"):
-        proof.check_state()
+        verification.check_state()
 
 
 def test_large_sparse_composition_and_verification_forbid_dense_or_spectral_paths(monkeypatch):

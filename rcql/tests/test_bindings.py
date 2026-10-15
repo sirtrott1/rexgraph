@@ -178,7 +178,7 @@ def test_optimizer_does_not_drop_bindings_when_rewriting_an_independent_return(r
     assert result.native_plan["bindings"][0]["name"] == "f"
 
 
-def test_optimizer_uses_exact_input_proofs_through_aliases_in_binding_definitions(rex):
+def test_optimizer_uses_exact_input_validation_through_aliases_in_binding_definitions(rex):
     face = Chain(2, np.array([1]), source=rex)
     result = run(rex, 'FROM $r LET c = $c LET alias = c '
                  'LET z = BOUNDARY(1, BOUNDARY(2, alias)) RETURN z', c=face)

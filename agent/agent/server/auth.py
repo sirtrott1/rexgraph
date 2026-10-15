@@ -13,6 +13,8 @@ what kind of work the team is doing.
 
 from __future__ import annotations
 
+from agent.data_paths import config_root
+
 import contextlib
 import hashlib
 import json
@@ -32,8 +34,7 @@ logger = logging.getLogger(__name__)
 _bearer = HTTPBearer(auto_error=False)
 
 # Config path
-_CONFIG_DIR = Path(os.environ.get("REXGRAPH_CONFIG_DIR",
-    Path.home() / ".config" / "rexgraph"))
+_CONFIG_DIR = config_root()
 
 # Canonical roles for the shared multi user model. A workspace has admin(s) who manage members,
 # configuration, and consequential actions, and users who read and run build verbs. Legacy tokens
@@ -464,12 +465,8 @@ class AuthManager:
 
         # Fall back to bearer token.
         #
-        # bcrypt is deliberately slow, and this scanned EVERY stored hash on EVERY
-        # request: at cost 12 with five tokens, and the matching one last, a request that
-        # returns 0.1 KB took 0.86s and the app took about 3s a page. The work was the
-        # authentication, not the data, and it grew with the number of tokens on file.
-        #
-        # So verify once and remember the answer for the process. The key is a SHA-256 of
+        # Reuse verification results to avoid scanning every bcrypt hash per request.
+        # The key is a SHA-256 of
         # the presented token rather than the token itself, so the cache never holds the
         # secret; and a MISS is cached too, or an unauthenticated caller could still make
         # the server do five bcrypts per request by repeating one bad token. Cleared

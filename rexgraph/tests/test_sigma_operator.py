@@ -66,7 +66,7 @@ def test_actions_and_analytic_derivatives_match_small_oracles(cells, weights, ch
     assert op.apply(np.empty((rex.nE, 0))).shape == (rex.nE, 0)
 
 
-def test_prime_weighted_theorem_family_is_explicit_not_a_default():
+def test_prime_weighted_operator_family_is_explicit_not_a_default():
     rex = make([(0, 1), (1, 2), (2, 3), (0, 2), (1, 3)])
     bases = np.array([2, 3, 5, 7])
     args = (np.log(bases).tolist(), (-np.log(bases)).tolist(), list("TGFC"), "count")

@@ -1,9 +1,8 @@
-"""The binary load bearing question is a walk, not a solve.
+"""Compare combinatorial bridge detection with independent graph calculations.
 
-R_eff(e) = 1 exactly when e is a bridge, so `bridge_mask` answers it in one traversal
-of the 1 skeleton and `_effective_resistance_batch` spends its columns only on the
-relations that lie on a cycle. Measured identical to the solve on Gene Ontology
-slices, 520/520 and 1315/1315.
+Bridge relations are identified by traversal of the participant structure.
+The fixtures check parallel relations, cycles, branching supports and
+the effective resistance values of the remaining relations.
 """
 from __future__ import annotations
 

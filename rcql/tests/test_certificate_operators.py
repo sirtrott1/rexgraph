@@ -65,7 +65,7 @@ def test_homotopy_direct_nested_and_member_contracts():
 def test_homotopy_wrong_sign_or_foreign_source_is_rejected_before_adapters(monkeypatch, explain):
     import rcql.executor
     rex, f, g, h = interval()
-    monkeypatch.setattr(rcql.executor, "get_operator", lambda *a: pytest.fail("invalid proof reached adapter"))
+    monkeypatch.setattr(rcql.executor, "get_operator", lambda *a: pytest.fail("invalid certificate reached adapter"))
     for left, right, witness in ((g, f, h), (f, interval()[2], h), (f, g, ((), ()))):
         with pytest.raises((TypeError, ValueError)):
             run(rex, "HOMOTOPY", left, right, witness, explain=explain)
@@ -80,7 +80,7 @@ def test_homotopy_explain_verifies_the_exact_equation_without_adapters(monkeypat
     assert any(p["name"] == "homotopy_certificate" and p["status"] == "verified" for p in info["predicates"])
 
 
-def test_homotopy_abstract_descriptors_defer_the_proof():
+def test_homotopy_abstract_descriptors_defer_the_validation():
     from rcql import SourcePolicy, bind
     from rcql.planning import _carrier_literal
     rex, f, g, h = interval()

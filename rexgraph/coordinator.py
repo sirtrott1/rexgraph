@@ -24,9 +24,9 @@ _PRIORS = {
     "gpu_kernel":       {"proc": (1.00, 0.9), "thread": (1.00, 0.9), "igpu": (0.10, 0.9)},
 }
 
-# Concurrent generations on one local server share weight reads.
-# The gain curve maps concurrency to estimated aggregate throughput.
-LOCAL_LLM_BATCH_GAIN = {1: 1.00, 2: 1.39, 4: 1.52, 8: 2.26}
+# Shared requests retain their bandwidth accounting. Throughput gain starts
+# neutral and is learned from observations supplied to the current CostModel.
+LOCAL_LLM_BATCH_GAIN = {1: 1.0}
 
 # Types whose cost is SHARED rather than additive: the bus draw belongs to one server serving all of
 # them, and their wall clock overlaps. Everything else stays strictly additive as before.
@@ -35,10 +35,8 @@ _SHARED_TYPES = frozenset({"local_llm"})
 
 #### which lanes share a bus is HARDWARE, so it is declared and not hardcoded
 #
-# `min(proc, igpu)` baked in unified memory. On the 8060S that is right, since the iGPU and
-# the CPU are on one physical bus, so a draw on either is a draw on the same resource --
-# and on a discrete GPU box it is wrong, because VRAM is its own pool and an igpu draw
-# costs a CPU draw nothing.
+# Unified memory places CPU and GPU lanes on one bus. A discrete GPU uses
+# a separate VRAM bus, so its bandwidth draw is accounted independently.
 #
 # So the topology is a COMPLEX, edge primary the way everything else here is: a bus is a
 # vertex, a LANE is the relation over the buses it draws on, and two lanes meet exactly
@@ -51,8 +49,11 @@ _BUSES = UNIFIED_MEMORY
 
 
 def bus_topology() -> dict:
-    """The active bus -> lanes map. Unified memory by default, which is what the machine
-    this was measured on has and what the previous hardcoded form assumed."""
+    """Return the process default mapping from buses to compute lanes.
+
+    The initial mapping uses unified memory. set_bus_topology or a
+    CostModel's set_buses supplies a different hardware layout.
+    """
     return dict(_BUSES)
 
 
@@ -172,8 +173,8 @@ def _enforce_gain_monotone(table: dict) -> None:
 
 
 def _batch_gain(n: int) -> float:
-    """The SEEDED curve, for callers without a CostModel. A model that has been fed
-    measurements should be asked instead: see CostModel.batch_gain."""
+    """Return the neutral default gain for callers without a CostModel.
+    """
     return _interp_gain(LOCAL_LLM_BATCH_GAIN, n)
 
 
@@ -187,10 +188,6 @@ def share_key(unit: dict) -> str:
     """
     return str(unit.get("share_group") or unit.get("type"))
 
-# And it does not stack with speculation: the same measurement gives 8 concurrent + MTP at 93.9
-# tok/s against 120.8 without it, because MTP fills idle compute with drafting and batching fills
-# it with other sequences. Single stream is the other way round: MTP 89.4 against 60.3. So the
-# choice is a function of how many generations are in flight, not a setting to fix once.
 _EMA = 0.15
 
 
@@ -222,12 +219,12 @@ class CostModel:
 
     #### the batch gain, learned the same way the times are
     def batch_gain(self, n: int) -> float:
-        """This model's aggregate throughput multiplier for `n` concurrent units.
+        """Return the estimated throughput multiplier for n concurrent units.
 
-        Starts at the seeded table and moves as `observe_throughput` is fed. Kept on the
-        model rather than in the module constant so two coordinators on different hardware
-        do not overwrite each other's curve: the seed is the 35B-A3B MoE on an 8060S and
-        a dense model or another box has a different one."""
+        The initial multiplier is one. observe_throughput updates this model's
+        curve from supplied baseline and concurrent rates. Models keep separate
+        curves, and requests beyond the final observation use its last gain.
+        """
         return _interp_gain(self._gain, n)
 
     def observe_throughput(self, n: int, tok_per_s: float) -> None:
@@ -428,12 +425,12 @@ def contention(assignment: dict, units: list, cost: CostModel, cap: dict | None 
 
 
 def delegation_complex(assignment: dict, units: list):
-    """The edge centric delegation complex (owner's model: an operator running a task IS an EDGE
-    from the brain, via the operator lane, to the task, not a vertex label). Vertices: brain, proc,
-    thread, igpu, hub, tasks. Edges: brain->lane (operator channels), lane->task (each execution,
-    the datum), and proc->hub / igpu->hub (shared bandwidth). Returned as a RexGraph for monitoring /
-    character analysis (bottleneck lanes = centrality, delegation deadlocks = cycles). Built on
-    demand, never in the actuator hot loop."""
+    """Represent a task assignment as a complex for monitoring and channel analysis.
+
+    Vertices identify the coordinator, execution lanes, shared resource hub and tasks.
+    Relations connect the coordinator to lanes, lanes to their assigned tasks and lanes
+    to the shared hub. Construction runs on demand outside task dispatch.
+    """
     from rexgraph.graph import RexGraph
     src, tgt = [], []
     lanes_used = sorted({ln for ln in assignment.values()})
@@ -607,11 +604,10 @@ def execute(units: list, assignment: dict, cost: CostModel|None = None) -> dict:
         with ThreadPoolExecutor(max_workers=min(32, len(thread_units))) as ex:
             drain(thread_units, ex)
     if proc_units:
-        # forkserver, not raw fork: this process has imported torch/numpy (many threads), and
-        # os.fork() in a multi threaded process warns and can deadlock. forkserver is also the
-        # mechanism that gave CPU bound coordination its 5.8x multicore scaling in benchmarks.
+        # Forkserver avoids inheriting active native thread pools from the parent.
         import multiprocessing as _mp
-        ctx = _mp.get_context("forkserver")
+        method = "forkserver" if "forkserver" in _mp.get_all_start_methods() else "spawn"
+        ctx = _mp.get_context(method)
         with ProcessPoolExecutor(max_workers=min(os.cpu_count() or 8, len(proc_units)),
                                  mp_context=ctx) as ex:
             drain(proc_units, ex)
@@ -638,19 +634,22 @@ _WORKER_TL = None   # holds the per worker threadpool limiter for the worker's w
 
 
 def _proc_worker_init(inner: int, affinity: bool):
-    """forkserver proc lane worker setup. CAPS this worker's inner native (BLAS / OpenMP) thread
-    pools to `inner`, so N workers each running threaded BLAS do not oversubscribe the machine
-    (workers * inner tracks the core budget, the same arithmetic parallel_map uses). Without this,
-    a BLAS heavy batch runs about 10x SLOWER than serial (32 workers each spawning 32 BLAS threads).
-    Optionally pins the worker to a core to keep its cache hot."""
+    """Configure native thread limits and optional CPU affinity for a process worker.
+
+    Each worker limits BLAS and OpenMP pools to ``inner`` threads so concurrent workers
+    share the configured core budget. Optional affinity assigns the worker to a CPU.
+    """
     global _WORKER_TL
     import os as _os
     inner = max(1, int(inner))
     for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
         _os.environ[_v] = str(inner)           # for any BLAS pool not yet initialized
     try:
-        import threadpoolctl
-        _WORKER_TL = threadpoolctl.threadpool_limits(inner)   # runtime cap for already loaded pools
+        from ._threadpools import ThreadLimit
+        if _WORKER_TL is not None:
+            _WORKER_TL.restore_original_limits()
+            _WORKER_TL = None
+        _WORKER_TL = ThreadLimit(inner)
     except Exception:
         pass
     if affinity:
@@ -692,7 +691,8 @@ class LanePools:
         if lane == "thread":
             return ThreadPoolExecutor(max_workers=32)
         import multiprocessing as _mp
-        ctx = _mp.get_context("forkserver")
+        method = "forkserver" if "forkserver" in _mp.get_all_start_methods() else "spawn"
+        ctx = _mp.get_context(method)
         workers = int((self._cap or capacity())["proc"]) if self._cap else (os.cpu_count() or 8)
         workers = max(1, workers)
         # Cap each worker's inner BLAS/OpenMP threads so workers * inner tracks THIS pool's core

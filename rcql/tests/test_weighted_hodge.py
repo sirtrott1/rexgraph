@@ -142,7 +142,7 @@ def test_zero_sector_exactness_does_not_depend_on_float_metric():
     assert desc['exact_action'] and dict(desc['parameters'])['active_sectors'] == []
 
 
-def test_computed_metric_positivity_is_not_a_static_proof():
+def test_computed_metric_positivity_is_not_a_static_validation():
     text = 'FROM $r RETURN HODGE_SUM(1, METRIC(1, ZERO(1)))'
     explained = run(make(), 'EXPLAIN '+text)
     assert 'deferred' in json.dumps(explained.values)

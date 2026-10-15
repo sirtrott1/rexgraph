@@ -1,29 +1,17 @@
-# RexGraph minimal environment (core only, no I/O or viz).
-
-# mamba env create -f environment-minimal.yml
-# mamba activate rexgraph
-# pip install -e . --no-build-isolation
-
+# Core build environment. Install from the repository root after activation.
+# micromamba create -p .venv -f environment-minimal.yml
+# micromamba run -p .venv python -m pip install -e . --no-build-isolation
 name: rexgraph
-
 channels:
   - conda-forge
-  - defaults
-
 dependencies:
-  - python>=3.10
-  - meson>=1.3
-  - meson-python>=0.16
-  - ninja
-  - cython>=3.0
-  - pkg-config
-  - packaging
-  - c-compiler
-  - cxx-compiler
-  - libgomp          # [linux]
-  - openblas
-  - libblas
-  - liblapack
-  - numpy>=1.24
-  - pytest>=7.0
+  - python=3.13
   - pip
+  - numpy>=2.0
+  - meson>=1.3
+  - meson-python>=0.18
+  - cython>=3.0
+  - ninja
+  - pkg-config
+  - c-compiler
+  - openblas

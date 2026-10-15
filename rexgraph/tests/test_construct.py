@@ -349,9 +349,7 @@ def test_mixed_rank_is_exact_when_it_answers():
 
 
 def test_mixed_rank_refuses_a_fragmented_group():
-    """The guard is the point: a dropped pair can disconnect a group, and then its
-    wide column is no longer spanned and DOES add rank. Measured, the unguarded
-    shortcut read 35 against a true 49."""
+    """Refuse the pairwise rank shortcut when dropped pairs disconnect a group."""
     from rexgraph.construct import from_groups, mixed_rank
     rng = np.random.default_rng(1)
     groups = [sorted(rng.choice(50, 5, replace=False).tolist()) for _ in range(40)]

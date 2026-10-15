@@ -1,77 +1,72 @@
-# rexgraph.flow: relational native models
+# RexGraph cochain models
 
-This directory holds the relational native learners: models whose parameters live on
-the complex as cochains, trained by preconditioning the gradient with the complex's own
-Green's function.
+These numerical PyTorch models store trainable values on the cells of a
+relational complex. Their Green optimizer propagates parameter updates through
+the declared cell structure. They are included in the Core package.
 
-Install the Core neural components from the repository root:
+## Installation
 
-```bash
-pip install ".[nn]"
+From the repository root:
+
+```sh
+make install-ml
 ```
 
-The cochain's sparse operator follows its parameter dtype and device through normal
-PyTorch module placement. Safetensors reload preserves the stored cochain dtype.
-The online field caches operators against Core's current native boundary, so public
-graph edits invalidate a previously cached flow operator. Retained model records bind
-the source, coordinates and implementation; Agent's assembled feature model checkpoint
-directories have a separate warm start contract documented in `agent/agent/models/README.md`.
+For an existing Core environment, install `.[nn]` from the repository
+root. That extra supplies PyTorch and SciPy for the numerical model components.
+See the [installation guide](../../README.md#optional-runtimes) for GPU builds.
 
-## The models
+Sparse operators use the parameter dtype and device, and safetensors reload
+preserves the stored dtype. The online field refreshes cached operators after
+graph edits. Retained model records identify their source, coordinates and
+implementation; Agent feature model checkpoints use the
+[warm start behavior](../../agent/agent/models/README.md#checkpoint-semantics)
+described in their guide.
 
-- `cochain.py` : `CoParticipationCochain`. A bare cochain `Z[nE, n_classes]` over the
-  edges, no features and no embeddings. It exposes `greens_groups()`, so
-  `make_optimizer("auto")` routes it to `GreensCochain` (Green's-preconditioned Adam)
-  automatically. The optimizer propagates class through the co participation structure to
-  edges that carry no gradient of their own.
-- `attention.py` : `CoParticipationAttention`. Relational attention as a settle over the
-  co participation adjacency, fit self supervised. It learns a parameterized settle over that adjacency.
-- `gate.py` / `navigator.py` / `online.py` : the flow loop. `MalaughGate` wakes only when
-  a structural entropy scalar MOVES; `FieldNavigator.step` runs the matrix free Hodge flow
-  on the disturbed region; `GreensCochainField` is the online predict then observe field
-  (one Green's solve plus one relational correction per event, no epochs, no learning
-  rate). See the temporal system for how this closes a live change loop.
+## Models
 
-## The correct construction, end to end
+| Component | Purpose |
+| --- | --- |
+| `CoParticipationCochain` | Class parameters with one row per relation, trained from observed labels |
+| `CoParticipationAttention` | Learned attention over the coparticipation adjacency |
+| `MalaughGate` | Detect changes in a structural entropy measurement |
+| `FieldNavigator` | Apply Hodge flow on a selected region |
+| `GreensCochainField` | Predict and update an online field as observations arrive |
 
-The canonical shape for relational or scientific data: entities are VERTICES, the
-measurements or relations you want to predict are EDGES (edge primary), and an entity that
-participates in K relations is a vertex of arity K, so those K edges become mutual
-co participants. That co participation structure is what lets the cochain reach an edge
-the loss never touches.
+`CoParticipationCochain` exposes `greens_groups()`, which lets the automatic
+optimizer select `GreensCochain`. It combines Adam updates with Green operator
+propagation through coparticipation. Relations connected to observed labels can
+therefore receive parameter updates even when their own rows contribute no
+gradient to the loss.
 
-Note what this construction does and does not give you. The edges it builds are 2 ary; the
-arity lives on the VERTEX, and the operator the cochain trains through is the resulting
-co participation adjacency. For a signed boundary COLUMN of arity K (a branching hyperedge
-rather than a high arity vertex) build the complex with `RexGraph.from_hypergraph`.
+`GreensCochainField` updates as observations arrive, using a Green solve and
+relational correction. Its state, caching and update options are defined in
+[online.py](online.py).
+
+## Usage
+
+Represent each measured relationship as a relation and each participating entity
+as a vertex. Relations sharing an entity become coparticipants. A relation with
+more than two participants uses `RexGraph.from_hypergraph` or declared `Relations`.
+A high degree vertex and a relation with several participants are distinct.
 
 ```python
 import numpy as np
-from rexgraph.graph import RexGraph
+from rexgraph import RexGraph
 from rexgraph.flow.cochain import CoParticipationCochain
 
-# entities -> vertex ids; each measurement is one edge between two entities.
-# an entity referenced by K measurements is automatically an arity-K branching vertex,
-# so its K edges are mutual co-participants. Nothing extra to declare.
-src = np.asarray(edge_left_entity,  np.int32)   # one endpoint per measurement
-tgt = np.asarray(edge_right_entity, np.int32)   # the other endpoint
-rex = RexGraph(sources=src, targets=tgt)         # each measurement IS an edge
-
-labels = np.asarray(class_per_edge, np.int64)    # the thing to predict, per edge
-obs    = np.asarray(observed_mask,  bool)         # True where the label is known
-
-# the model IS a cochain on the complex. no features, no embeddings.
-model = CoParticipationCochain(rex, n_classes)
-model.fit(labels, obs, epochs=300, lr=0.3)        # routes through make_optimizer("auto")
-pred = model.predict()                            # class for EVERY edge, incl. masked ones
-acc  = float((pred[~obs] == labels[~obs]).mean())
+rex = RexGraph.from_graph([0, 0, 1, 2], [1, 2, 3, 3])
+labels = np.array([0, 0, 1, 1], dtype=np.int64)
+observed = np.array([True, False, True, False])
+model = CoParticipationCochain(rex, n_classes=2)
+model.fit(labels, observed, epochs=30, lr=0.1)
+predictions = model.predict()
 ```
 
-The masked edges receive no gradient from the loss. `GreensCochain` propagates
-updates through the co participation operator to rows without observed labels.
-Performance depends on the structure and the available observations.
+Only observed edges contribute to the loss. `GreensCochain` propagates their
+updates through the coparticipation operator to connected parameter rows.
 
-## Using the models
+## Optimizer selection
 
 Build the optimizer with `make_optimizer("auto", model, params)`. It selects
 `GreensCochain` for models exposing `greens_groups()` and Adam for feature models.

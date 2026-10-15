@@ -13,6 +13,54 @@ def graph():
     return RexGraph.from_graph([0], [1])
 
 
+def test_empty_rex_compaction_publishes_its_store_identity(tmp_path):
+    root = tmp_path / "empty"
+    store = RexStore(str(root), read_only=False)
+    store.compact()
+    identity = store.store_id
+    store.close()
+    reopened = RexStore(str(root))
+    try:
+        assert reopened.store_id == identity
+        assert reopened.list() == []
+    finally:
+        reopened.close()
+
+
+def test_failed_rex_compaction_preserves_live_blob_coordinates(tmp_path, monkeypatch):
+    import os
+
+    root = tmp_path / "packed"
+    store = RexStore(str(root), read_only=False)
+    store.put("discard", graph(), analytics=False)
+    store.put("keep", RexGraph.from_graph([0, 1], [1, 2]), analytics=False)
+    store.delete("discard")
+    replace = os.replace
+
+    def fail_pack(source, target):
+        if Path(target).name == "blobs.pack":
+            raise OSError("injected pack publication failure")
+        return replace(source, target)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "replace", fail_pack)
+        with pytest.raises(OSError, match="injected"):
+            store.compact()
+    # A failed maintenance operation must leave both this handle and cold reads
+    # able to verify the same live record, including its exact byte binding.
+    assert store.get("keep").nE == 2
+    store.close()
+    # Force a cold journal replay rather than allowing a derived index to hide
+    # incorrect offsets published in the compacted journal.
+    (root / "index.safetensors").unlink(missing_ok=True)
+    reopened = RexStore(str(root))
+    try:
+        assert reopened.get("keep").nE == 2
+        assert reopened.get("discard") is None
+    finally:
+        reopened.close()
+
+
 def opened(kind, root):
     return (FileStore if kind == "file" else RexStore)(str(root), read_only=False)
 

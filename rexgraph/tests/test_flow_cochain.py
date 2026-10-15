@@ -16,7 +16,7 @@ from rexgraph.nn.factory import make_optimizer  # noqa: E402
 def _hub_hypergraph(groups=8, per_group=15, n_classes=2):
     """`groups` hubs, each a target vertex bound by `per_group` ligands -> an arity-`per_group`
     branching hyperedge. Every edge in a group shares that hub, so co participation groups them; a
-    ligand is unique to its edge, so the ONLY shared structure is the hub. class = group % n_classes.
+    ligand is unique to its edge, so the only shared structure is the hub. class = group % n_classes.
     Hub ids 0..groups 1, ligand ids groups.. (disjoint, so no vertex collision). Returns
     (rex, labels, per_group, groups)."""
     src, dst, labels = [], [], []
@@ -94,8 +94,8 @@ def test_coparticipation_channel_propagates_where_adam_cannot():
 
 
 def test_restricting_connectors_to_the_non_hub_side_kills_propagation():
-    # ablation: restrict co participation to the LIGAND vertices (unique per edge) -> no shared cell,
-    # so the channel cannot propagate and collapses to the Adam floor. Proves it is the branching HUB
+    # Restriction check: restrict co participation to the LIGAND vertices (unique per edge) -> no shared cell,
+    # so the channel cannot propagate and collapses to the Adam floor. Checks the branching HUB
     # doing the work, not co participation generically.
     rex, labels, _arity, groups = _hub_hypergraph()
     n_vertices = abs(_scipy_incidence(rex)).shape[0]

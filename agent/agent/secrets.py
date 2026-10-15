@@ -14,6 +14,8 @@ Select via ``REXGRAPH_SECRETS_URI``:
 
 from __future__ import annotations
 
+from agent.data_paths import config_root
+
 import builtins
 import contextlib
 import json
@@ -135,8 +137,8 @@ class EnvSecretStore(SecretStore):
     backend takes: swap ``os.environ`` for the vault client.
     """
 
-    def __init__(self, index_path: str = "~/.config/rexgraph/secret_refs.json"):
-        self.path = os.path.expanduser(index_path)
+    def __init__(self, index_path: str | None = None):
+        self.path = os.path.expanduser(index_path or str(config_root() / "secret_refs.json"))
 
     def _load(self) -> dict:
         return _load_store(self.path, "ref")
@@ -230,7 +232,7 @@ def resolve_ref(ref: str) -> str:
 def open_secret_store(uri: str = None) -> SecretStore:
     """Open the configured secret store (``REXGRAPH_SECRETS_URI``)."""
     uri = uri or os.environ.get("REXGRAPH_SECRETS_URI") \
-        or "file://~/.config/rexgraph/connections.json"
+        or str(config_root() / "connections.json")
     if uri.startswith("env://"):
         return EnvSecretStore()
     if uri.startswith("file://"):

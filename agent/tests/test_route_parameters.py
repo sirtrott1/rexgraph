@@ -150,7 +150,7 @@ def test_a_builder_step_cannot_name_an_output_outside_the_allowed_directories(cl
 def test_an_ordinary_builder_output_still_runs(client, tmp_path_factory, monkeypatch):
     """Deliberately NOT under the config directory: `client` points REXGRAPH_CONFIG_DIR
     at its own tmp_path, and path_within refuses that outright, so naming it would be
-    refused for the right reason and prove nothing about the ordinary case."""
+    refused for the right reason and leave the ordinary case unchecked."""
     import json as _json
     outdir = tmp_path_factory.mktemp("builder_out")
     monkeypatch.setenv("REXGRAPH_ALLOWED_DIRS", str(outdir))

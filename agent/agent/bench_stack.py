@@ -1,23 +1,13 @@
-"""
-agent.bench_stack: the numbers, measured the same way every time.
+"""Measure supported storage, indexing and vocabulary operations.
 
-Every performance claim in this stack was arrived at by measuring, and two of them
-were wrong the first time. A benchmark reusing one payload across backends charged
-the whole of structural_signature to whichever backend ran first, because RexGraph
-caches betti and coherence on the instance, a 157x difference that read as a
-backend result. A vocabulary lookup that had gone from 0.5 ms to 3.5 ms was a list
-scan hiding inside an index whose whole purpose was to remove scans.
+Each backend receives a fresh generated payload so object caches are not
+shared across comparisons. Results report median timings and the current
+host information. --save writes a report to the supplied external path;
+--compare compares the current measurements with a supplied report.
 
-Both were caught by re measuring rather than by reasoning, so this exists to make
-re measuring the cheap thing to do:
-
-    python -m agent.bench_stack                 # run and print
-    python -m agent.bench_stack --save out.json # record it
-    python -m agent.bench_stack --compare out.json   # against a recorded run
-
-Every payload is fresh per backend, so nothing inherits a warm cache from whoever
-ran before it. Numbers are medians, and the host is recorded alongside them because
-a figure without the machine it came from is not a measurement.
+    python -m agent.bench_stack
+    python -m agent.bench_stack --save /tmp/rexgraph-stack.json
+    python -m agent.bench_stack --compare /tmp/rexgraph-stack.json
 """
 
 from __future__ import annotations
@@ -40,9 +30,11 @@ TOLERANCE = 2.0
 
 
 def _payload(n_records: int, vocab_size: int = 20000, seed: int = 0):
-    """Fresh complexes. Never reused across backends: RexGraph caches betti and
-    coherence on the instance, so a shared payload hands the second backend a
-    157x head start and calls it a result."""
+    """Generate fresh complexes for one backend's measurement.
+
+    The payload is rebuilt for each backend to keep cached analysis results
+    from changing the cost of later measurements.
+    """
     from rexgraph.graph import RexGraph
 
     rng = np.random.default_rng(seed)
@@ -121,10 +113,7 @@ def bench_backend(kind: str, n: int, root: str) -> dict[str, Any]:
 
     probe = payload[n // 2][1][0]
     reopen = None if kind == "memory" else _median_ms(_open, 3)
-    # MemoryStore has nothing to reopen: calling _open() again would hand back an
-    # EMPTY store and every query below would time a scan over nothing. That is
-    # exactly the hollow figure this harness exists to prevent, and it was in the
-    # harness, which reported 0.004 ms where the real query takes 25 ms.
+    # Reuse the populated MemoryStore; reopening would create an empty store.
     live = store if kind == "memory" else _open()
     out = {
         "records": n,

@@ -18,8 +18,8 @@ def validate_readout(binding, family, left, right, certificate, side):
 def section_certified_observe(source, family, left, right, certificate, side="right"):
     from .section_operators import _selected
     _selected(source, family.source)
-    proof = validate_readout(current_binding(), family, left, right, certificate, side)
-    record_method("certified-section-readout", certificate=proof.digest, side=side)
+    verification = validate_readout(current_binding(), family, left, right, certificate, side)
+    record_method("certified-section-readout", certificate=verification.digest, side=side)
     return family.observe(left if side == "left" else right)
 
 

@@ -35,16 +35,12 @@ BLOBS = "blobs.pack"
 SEARCH = "search.safetensors"
 FORMAT_VERSION = 1
 
-#: Snapshot when the un indexed tail grows past this fraction of what is already
-#: indexed. Writing the index costs ~30 us per record because it rewrites all of
-#: them; NOT writing it costs ~13 us per un indexed record on EVERY open. So a store
-#: opened more than about twice between writes is better off snapshotting, and a
-#: ratio bounds the replay tail without anyone picking a record count. The same
-#: shape as TemporalRex's checkpoint threshold, for the same reason.
+#: Snapshot when the unindexed tail reaches this fraction of the indexed record
+#: count, subject to INDEX_MIN_TAIL. Override with REXGRAPH_INDEX_TAIL_RATIO.
 INDEX_TAIL_RATIO = float(os.environ.get("REXGRAPH_INDEX_TAIL_RATIO", "0.5"))
 
-#: below this many un indexed records, replay is cheaper than the snapshot that
-#: would avoid it: at 500 records replay is 5.7 ms against 12.9 ms to write.
+#: Minimum tail count before automatic snapshotting. Override with
+#: REXGRAPH_INDEX_MIN_TAIL.
 INDEX_MIN_TAIL = int(os.environ.get("REXGRAPH_INDEX_MIN_TAIL", "1000"))
 
 
@@ -780,33 +776,42 @@ class RexStore(RCStore):
         write path pays on every call.
         """
         self._check_writable()
-        tmp_log = self._records_path + ".compact"
-        tmp_pack = self._blobs_path + ".compact"
-        # Read before the logs are replaced, because compaction clears the tail it would
-        # otherwise be rebuilt from.
+        from rexgraph.io.publication import staged_publication
+
+        # The journal and pack form one address space. Publish the complete
+        # staged directory, so an interrupted second file replacement cannot
+        # leave new offsets pointing into the old pack. The shared publisher
+        # syncs staging and retains the previous directory if rollback fails.
         protected_tokens = (self._protected_tokens_by_version()
                             if self._protected_labels() else None)
         before = self.stats()
         from . import index as _ix
         from .journal import _header
-        with open(tmp_log, "wb") as lf:
-            lf.write(_header(self.store_id))
-        with open(tmp_pack, "wb") as pf:
-            for rid in sorted(self._recs):
-                for rec in self._recs[rid]:
-                    blob = self._read_blob(rid, rec.version)
-                    if blob is None:
-                        raise ValueError("cannot compact a record with missing blob bytes")
-                    offset = pf.tell()
-                    pf.write(blob)
-                    extra = [offset, len(blob)]
-                    tokens = (() if protected_tokens is None else
-                              protected_tokens.get((rid, int(rec.version)), ()))
-                    if tokens:
-                        extra.extend(self._tokens_extra(tokens))
-                    _ix.log_append(tmp_log, "put", rid, rec, extra=extra, store_id=self.store_id)
-        os.replace(tmp_log, self._records_path)
-        os.replace(tmp_pack, self._blobs_path)
+        store_id = self.store_id
+        with staged_publication(self.root, directory=True, update=True) as staged:
+            tmp_log = staged / (RECORDS + ".compact")
+            tmp_pack = staged / (BLOBS + ".compact")
+            with tmp_log.open("wb") as lf:
+                lf.write(_header(store_id))
+            with tmp_pack.open("wb") as pf:
+                for rid in sorted(self._recs):
+                    for rec in self._recs[rid]:
+                        blob = self._read_blob(rid, rec.version)
+                        if blob is None:
+                            raise ValueError("cannot compact a record with missing blob bytes")
+                        offset = pf.tell()
+                        pf.write(blob)
+                        extra = [offset, len(blob)]
+                        tokens = (() if protected_tokens is None else
+                                  protected_tokens.get((rid, int(rec.version)), ()))
+                        if tokens:
+                            extra.extend(self._tokens_extra(tokens))
+                        _ix.log_append(tmp_log, "put", rid, rec, extra=extra, store_id=store_id)
+            os.replace(tmp_log, staged / RECORDS)
+            os.replace(tmp_pack, staged / BLOBS)
+            # These snapshots contain offsets into the previous generation.
+            for name in (INDEX, SEARCH):
+                (staged / name).unlink(missing_ok=True)
         self._recs, self._blob_at, self._labels = {}, {}, {}
         self._search_tail = {}
         self._search_records = {}

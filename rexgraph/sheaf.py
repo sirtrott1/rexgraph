@@ -335,7 +335,7 @@ class Sheaf:
 
         So the restriction is that number, and nothing has to be invented, stored or
         encoded. `select()` below takes a caller's own labels instead, which is a
-        different and much weaker thing: an indicator is EXISTENCE ONLY, with orientation
+        different and much weaker thing: an indicator is EXISTENCE only, with orientation
         and share thrown away.
         """
         if self.grade not in (0, 1):

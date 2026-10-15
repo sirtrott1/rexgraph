@@ -1,22 +1,18 @@
-"""
-agent.finetune: LoRA fine tune of a Hugging Face model on this machine's GPU, plus an
-optimizer A/B on the same run.
+"""LoRA training and evaluation for a supplied Hugging Face model.
 
-`finetune()` builds its optimizer with `make_optimizer(optimizer, ...)` and defaults to `"auto"`,
-which routes a feature space model (this is one: LoRA adapts weight matrices) to plain Adam. It
-streams the loss through the platform's run log and produces a loadable adapter. `finetune_ab()`
-names its two arms deliberately (`("hodge", "adam")` by default): it trains the same model on the
-same data with the same seed under each, so the two loss curves are directly comparable, and judges
-on a held out eval split. HodgeAdam appears there as an arm under test, not as a recommendation.
+finetune loads the selected model and data, trains adapter weights and
+stores a loadable adapter. Optimizers are built through make_optimizer;
+auto selects Adam for these parameter groups. finetune_ab compares named
+optimizers using the same data and seed, with a separate evaluation split.
+Its default comparison uses Adam and AdamW.
 
-Scope: LoRA optimizes the model's weight matrices; the transformer's attention stays standard
-(relational attention is the native model track, not a llama.cpp/HF retrofit). This exercises the
-optimizer and the end to end platform, not relational attention.
-
-Heavy deps (transformers/peft/datasets/accelerate) are optional and imported lazily: when absent,
-every entry point returns an "install the [finetune] extra" message instead of raising.
+Optional transformers, peft, datasets and accelerate imports occur at use.
+An unavailable dependency produces an installation message for the finetune
+profile.
 """
 from __future__ import annotations
+
+from agent.data_paths import config_root
 
 import csv
 import json
@@ -113,7 +109,7 @@ def deps_available() -> dict:
 
 
 def _artifacts_dir(run_id: str | None) -> Path:
-    base = Path(os.environ.get("REXGRAPH_CONFIG_DIR", Path.home() / ".config" / "rexgraph"))
+    base = config_root()
     d = base / "runs" / "artifacts" / (run_id or "finetune")
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -281,7 +277,7 @@ def finetune(*, model_id: str = DEFAULT_MODEL, optimizer: str = "auto", steps: i
             "trajectory": traj, "adapter": adapter}
 
 
-def finetune_ab(*, model_id: str = DEFAULT_MODEL, optimizers=("hodge", "adam"), steps: int = 60,
+def finetune_ab(*, model_id: str = DEFAULT_MODEL, optimizers=("adam", "adamw"), steps: int = 60,
                 on_step: Callable = None, **kw) -> dict:
     """The A/B run: fine tune the same model on the same data and seed under each optimizer, so the
     loss curves are directly comparable. Returns both runs and a verdict on held out eval loss."""

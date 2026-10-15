@@ -1,6 +1,6 @@
 """Tests for the ecosystem integration routes: vLLM structural routing,
 LangChain confidence/analyze, LangGraph state analysis, TrustGraph triple
-analysis, HuggingFace axiom compliance. All run standalone (no external
+analysis, HuggingFace operator residuals. All run standalone (no external
 services, no torch/langchain/langgraph install required)."""
 
 import pytest
@@ -22,7 +22,7 @@ TRIPLES = [["Alice", "knows", "Bob"], ["Bob", "knows", "Carol"],
 class TestVLLMRouter:
     def test_route_returns_capability_and_channel(self, client):
         r = client.post("/api/v1/vllm/route",
-                        json={"text": "prove step by step that even plus even is even"})
+                        json={"text": "calculate step by step the sum of two even integers"})
         assert r.status_code == 200
         d = r.json()
         assert d["routed_to"] in ("reasoning", "creative", "analytical", "multi-hop")

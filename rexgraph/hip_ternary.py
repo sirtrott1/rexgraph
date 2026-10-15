@@ -91,7 +91,7 @@ def _load():
 def available() -> bool:
     """Whether the compiled kernel executes correctly on a visible device.
 
-    Loading ``libamdhip64`` proves that the runtime exists, not that this process can
+    Loading ``libamdhip64`` establishes that the runtime exists, not that this process can
     reach a GPU. Containers commonly expose the host library without ``/dev/kfd`` or
     a render node; registering the lane there makes automatic dispatch choose a
     backend whose first allocation fails with ``hipErrorNoDevice``. Allocation alone

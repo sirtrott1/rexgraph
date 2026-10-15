@@ -35,7 +35,7 @@ def test_exact_numeric_transpose_and_complex_blocks(shape):
     assert view.source.nE == view.shape[0] == 4
 
 
-def test_paper_overlap_path_without_invented_sentence_vertices():
+def test_document_overlap_path_without_invented_sentence_vertices():
     source = RexGraph.from_cells([4, [[0, 1], [1, 2], [2, 3]]])
     view = TextOverlapView(source)
     a = view.apply(np.eye(3, dtype=object), exact=True)

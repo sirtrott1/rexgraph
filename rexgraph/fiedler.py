@@ -43,12 +43,9 @@ def kernel_basis(L0):
 
     Exact and combinatorial, not a spectral estimate. Returns (U, ncols).
 
-    U IS SPARSE, and has to be: it is a component indicator matrix, so every row carries
-    exactly ONE nonzero and the nnz is nV whatever the component count. As dense it is
-    nV x ncomp, which on a real lexical complex of 721,649 vertices and 23,313 components
-    asks for 0.13 TB to hold 721,649 numbers. Dense is never the better representation
-    here, so it is not offered; callers do `U @ (U.T @ P)` and `U.multiply(U).sum(1)`,
-    both of which scipy supports directly.
+    U is sparse, with at most one nonzero per vertex. Callers can apply the
+    kernel projection as U @ (U.T @ P) without allocating a dense nV by ncomp
+    indicator matrix.
     """
     import scipy.sparse as sp
     nV = L0.shape[0]
@@ -83,23 +80,11 @@ def _dense(L0, nV, k):
 
 
 def fiedler_L0(L0, k: int = 6):
-    """(fiedler_val, fiedler_vec, evals, evecs) for a sparse L0.
+    """Return (fiedler_val, fiedler_vec, evals, evecs) for a sparse L0.
 
-    The preconditioner is chosen by the solver's own residual, not by a size rule,
-    because the two regimes are complementary:
-
-      well connected graphs   converge under Jacobi, and are exactly the ones a
-                              complete factorization chokes on: on a 10000-vertex
-                              random graph splu turns 209796 nonzeros into 82 million
-                              and takes 54 s, while Jacobi lands on the same value to
-                              5e-15 in half a second.
-      path like graphs        do not converge under Jacobi (a 2500 path reports
-                              8.97e-06 for 1.58e-06), and are exactly the ones that
-                              factorize in milliseconds.
-
-    So Jacobi runs first and the RELATIVE residual decides whether to redo the solve
-    against the exact factorization. See _REL_RESID_OK.
-    """
+    The bounded dense path handles small inputs. The sparse path tries Jacobi
+    preconditioning first and checks its relative residual against _REL_RESID_OK.
+    If that check fails, it repeats the solve using a complete factorization."""
     import scipy.sparse as sp
     from scipy.sparse.linalg import LinearOperator, lobpcg, splu
     L0 = sp.csr_matrix(L0)
@@ -214,14 +199,8 @@ def deflated_operator(B1, *, kernel=None, native=False):
     """The regularised Laplacian `L_0 + P_H` as an OPERATOR, plus its Jacobi diagonal.
 
     `L_0` is singular, so the solve goes through `(L_0 + P_H)^{-1} - P_H`. Every
-    caller that wants it was building `L_0 = B_1 B_1^T` first and handing the product to
-    `_block_cg`, which takes a callable and never needed the matrix. That product is the
-    expensive object: on a real lexical complex `B_1` is 4,725,208 nnz and 60 MB while the
-    formed `L_0` is 108,744,551 nnz and 1.31 GB, and because a matvec costs what it reads,
-    forming it makes every apply 6.8x SLOWER (84.2 ms against 12.5 ms) as well as 22x
-    larger.
-
-    So nothing is formed here. `L_0 x` is `B_1 (B_1^T x)`, `diag(L_0)` is the row sums of
+    application evaluates the Laplacian through B1 and B1^T, avoiding the
+    fill introduced by explicitly constructing their matrix product. `L_0 x` is `B_1 (B_1^T x)`, `diag(L_0)` is the row sums of
     `B_1 * B_1`, and the kernel comes from the boundary. Without an explicit ``kernel``
     this is a pairwise/witness-only helper; branching C1 must use the general Green
     action because support components do not span its full kernel. Returns
@@ -261,18 +240,12 @@ def minimum_norm_gram_solve(B, values, *, tol=1e-12, maxit=500):
 
 
 def solve_block_width(nV, nE, *, panels=6):
-    """How many right hand sides fit under the configured dense ceiling.
+    """Choose the block width under the configured dense allocation limit.
 
-    The tall dimension is `nV + nE`, not `nV`, and that distinction IS the bug this
-    exists to close. Block CG holds `panels` dense nV tall panels (X, R, Z, P, AP and the
-    right hand side), but `deflated_operator`'s apply is `B @ (B^T P)`, so it forms an
-    nE tall transient of the same width inside the operator. Blocking on nV alone still
-    allocated nE x ncols out of sight of the caller: on one 331 KB book that transient was
-    468,291 x 466,489, or 1.59 TiB.
-
-    The budget is whatever `check_dense_allocation` is configured to allow, probed rather
-    than read, so the width follows the caller's own `configure_memory` ceiling instead of
-    a constant chosen here.
+    Block conjugate gradient retains ``panels`` arrays of height nV, while applying
+    ``B @ (B.T @ P)`` also creates a transient array of height nE. The allocation
+    estimate includes both dimensions and probes ``check_dense_allocation`` so the
+    width follows the caller's configured memory ceiling.
     """
     from rexgraph.core._common import CoreMemoryLimitError, check_dense_allocation
 

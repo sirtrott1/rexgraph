@@ -183,9 +183,7 @@ def _block_cg(apply_A, B, dinv, tol=1e-10, maxit=1000, *, return_info=False):
     # Each column is an independent CG: alpha and beta are per column scalars and the
     # only thing shared is the operator. So a converged column can LEAVE the block,
     # and it must, because the loop below stops on the worst column and every column
-    # still in the block pays that column's iteration count. Measured on two ontology
-    # slices, 596 columns took 117 iterations and 1000 took 286: the width was driving
-    # the depth.
+    # still in the block otherwise pays the worst column's iteration count.
     iterations = np.zeros(B.shape[1], dtype=np.int64)
     active = np.flatnonzero(np.linalg.norm(R, axis=0) / bnorm >= tol)
     R, P, rz = R[:, active], P[:, active], rz[active]
@@ -670,9 +668,8 @@ def channel_diagonals(rex):
                                                 relation disagrees with all m and every
                                                 negative one with all p.
 
-    Assembling the operators to read these costs sum_v deg(v)^2 nonzeros, which one hub
-    detonates: on a GO shaped complex (max degree 24256) that is 760 million entries
-    and 112 s for four arrays of length nE.
+    Explicit operator assembly can require sum_v deg(v)^2 entries. Reading
+    the four diagonals directly avoids this fill at vertices of high degree.
 
     The derivation above is exact for a SIGNED PAIRWISE UNWEIGHTED complex and only
     there, because a branching column carries -1 and 1/(k-1), so an off diagonal T-G

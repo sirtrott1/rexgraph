@@ -1962,7 +1962,7 @@ class TrustGraphAdapter(DomainAdapter):
         Parameters
 
         entities : list of str
-            Entity names in the query (e.g., ["Metformin", "mTOR"]).
+            Entity names in the query (e.g., ["entity_a", "entity_b"]).
         flow : str, optional
             TrustGraph flow to load from (connected mode).
         core_id : str, optional

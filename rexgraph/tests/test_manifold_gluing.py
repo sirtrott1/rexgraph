@@ -93,5 +93,5 @@ def test_where_the_recursion_bottoms_out():
     s3 = betti_of(sphere(3))
     assert s3 == [1, 0, 0, 1]
     # any complex sharing this Betti vector is indistinguishable to a homology reading,
-    # which is precisely the situation the conjecture is about.
+    # which exercises the boundary interaction at the shared relation.
     assert s3 == [1, 0, 0, 1]

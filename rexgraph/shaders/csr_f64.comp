@@ -1,0 +1,23 @@
+#version 450
+#extension GL_ARB_gpu_shader_fp64 : require
+
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0, std430) readonly buffer RowPointers { uint ptr[]; };
+layout(set = 0, binding = 1, std430) readonly buffer ColumnIndices { uint col[]; };
+layout(set = 0, binding = 2, std430) readonly buffer Coefficients { double val[]; };
+layout(set = 0, binding = 3, std430) readonly buffer InputValues { double x[]; };
+layout(set = 0, binding = 4, std430) writeonly buffer OutputValues { double y[]; };
+layout(push_constant) uniform Dimensions { uint rows; uint columns; } dims;
+
+void main() {
+    uint lane = gl_GlobalInvocationID.x
+              + gl_GlobalInvocationID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x;
+    if (lane >= dims.rows * dims.columns) return;
+    uint row = lane / dims.columns;
+    uint column = lane % dims.columns;
+    double total = 0.0;
+    for (uint pos = ptr[row]; pos < ptr[row + 1]; ++pos) {
+        total += val[pos] * x[col[pos] * dims.columns + column];
+    }
+    y[lane] = total;
+}

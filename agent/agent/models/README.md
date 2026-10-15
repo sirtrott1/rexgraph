@@ -1,122 +1,110 @@
-# models: the model builder framework (on rexgraph.nn)
+# Agent models
 
-Pick an archetype, override its parameters, point it at data, and train it as a single run, a staged
-multistep run, or a multi model fusion. These assembled example models live in the Agent
-distribution. Core supplies `rexgraph.nn` components and retained relational models in
-`rexgraph.flow`; those cochain models use the complex as their parameter space.
+The model builder assembles MLP, CNN, language and hypergraph models from
+`rexgraph.nn` components. It supports single runs, staged training and model
+fusion. These feature models use Adam through `make_optimizer("auto")`.
+Core's [cochain models](../../../rexgraph/flow/README.md) use cell parameters
+and their own Green optimizer contract.
 
-## Archetypes (the selector)
+## Installation
 
-| name | use case | data kind | key params |
-|---|---|---|---|
-| `mlp`  | tabular / vector: classification or regression | vector | `d_hid`, `n_layers`, `task` |
-| `cnn`  | image classification | image | `depth`, `width`, `norm` |
-| `lm`   | sequence / language modeling (next token) | sequence | `d`, `n_head`, `n_layer`, `attention` (`relational`/`standard`) |
-| `hgnn` | node classification on hypergraphs / higher order relational data (advection+diffusion, uses signed orientation) | hypergraph | `d_hid`, `n_layers`, `flow`, `oriented` |
+From the repository root:
 
-Every archetype is built from `rexgraph.nn` components (PropagatorAttention, `build_attention`, the
-rcf_torch propagators). No archetype builds an optimizer: training routes through
-`make_optimizer("auto")`, and since all four are feature space models that resolves to plain Adam.
-Register a new one with `register_archetype(...)`.
+```sh
+make install-ml
+.venv/bin/rexgraph-models list
+```
 
-## Use it (Python)
+This installs PyTorch, Core neural components and Agent model dependencies.
+See the [installation guide](../../../README.md#optional-runtimes) for GPU builds.
+
+## Archetypes
+
+| Archetype | Purpose | Data kind | Main parameters |
+| --- | --- | --- | --- |
+| `mlp` | Classification or regression on tabular features | `vector` | `d_hid`, `n_layers`, `task` |
+| `cnn` | Image classification | `image` | `depth`, `width`, `norm` |
+| `lm` | Next token prediction | `sequence` | `d`, `n_head`, `n_layer`, `attention` |
+| `hgnn` | Node classification with oriented flow and diffusion | `hypergraph` | `d_hid`, `n_layers`, `flow`, `oriented` |
+
+Register an additional archetype with `register_archetype(...)`.
+
+## Usage
+
+The following run uses the archetype's synthetic data:
 
 ```python
-from agent.models import list_archetypes, run, build
+from agent.models import list_archetypes, run
 
-list_archetypes()                          # names, use-cases, and each archetype's params
-
-# single run on synthetic data (default). optimizer defaults to "auto" (the router)
-run("cnn", params={"norm": False}, steps=300)
-
-# your data
-run("mlp", data="mydata.csv")                        # csv/jsonl/npz table
-run("lm",  data="corpus.txt", params={"attention": "standard"})
-
-# any optimizer by name when you want a specific one (an A/B arm, say)
-run("mlp", data="mydata.csv", optimizer="adamw")
-
-# just build the model (no training)
-model, cfg, bundle = build("hgnn", params={"n_layers": 3})
-
-# multistep: stage training (curriculum / optimizer schedule / warmup to refine)
-run("mlp", mode="multistep", stages=[
-    {"steps": 100},                       # warm up on the routed optimizer
-    {"steps": 300, "lr": 5e-4},           # refine at a lower lr
-])
-
-# multi-model fusion: ensemble / data-split specialists / stacking
-run("mlp", mode="fusion", fusion="ensemble",
-    specs=[("mlp", {}), ("mlp", {"d_hid": 64})])   # average predictions
-run("cnn", mode="fusion", fusion="split", specs=[("cnn", {}), ("cnn", {"norm": False})])  # data-parallel specialists
-run("mlp", mode="fusion", fusion="stack", specs=[("mlp", {}), ("mlp", {"n_layers": 3})])  # meta-head over base logits
+print(list_archetypes())
+result = run("mlp", steps=20, device="cpu")
 ```
 
-## Use it (CLI)
+Supply a table, a text file or a `DataBundle` to train on application data.
+`build` creates a model without training it. Staged runs accept a list of
+step counts and learning rates. Fusion supports `ensemble`, `split` and `stack`.
 
+From the repository root:
+
+```sh
+.venv/bin/rexgraph-models build --archetype mlp --data mydata.csv --optimizer adamw
+.venv/bin/rexgraph-models multistep --archetype mlp --stage steps=100 --stage steps=300,lr=5e-4
+.venv/bin/rexgraph-models fusion --spec mlp --spec mlp:d_hid=64 --fusion ensemble
 ```
-python -m agent.models list
-python -m agent.models build     --archetype cnn --set norm=false --steps 300
-python -m agent.models build     --archetype mlp --data mydata.csv --optimizer adamw
-python -m agent.models multistep --archetype mlp --stage steps=100 --stage steps=300,lr=5e-4
-python -m agent.models fusion    --spec mlp --spec mlp:d_hid=64 --fusion ensemble
-```
 
-## rexgraph IO: data in, models + complexes out
+## Data and model storage
 
-Data and complex I/O use `rexgraph.io`, with RCDB cataloguing for complexes. Agent feature model
-checkpoints are local directories containing weights and configuration; their path is not a SQL
-URI. Table sources, including SQL, are loaded into memory. Use the mapped
-numeric table loader below when the complete table should remain on disk.
-
+Data loaders use rexgraph.io, and source complexes can be catalogued in RCDB.
+Feature model checkpoints are local directories containing weights and
+configuration. Table sources, including SQL, load into memory; use the mapped
+numeric loader below to keep the complete table on disk.
 
 ```python
-from agent.models import run, load_bundle, save_checkpoint, load_checkpoint, save_complex_rex, to_rcdb
+from agent.models import build, load_checkpoint, save_checkpoint
 
-# data in: any rexgraph.io source to a DataBundle
-load_bundle("train.parquet")            # parquet table (feature cols + label)
-load_bundle("vecs.safetensors")         # a save_vectors / embedding corpus
-load_bundle("graph.rcbd")               # a .rcbd bundle to hypergraph (signed complex)
-load_bundle("postgresql://...", table="samples")   # a database table
-# run() takes any of these directly:
-run("mlp", data="train.parquet", save_to="ckpt")
-
-# model out (a checkpoint on the IO stack): weights.safetensors, config.json, trajectory.safetensors
-#   (the trajectory is a rexgraph.io vector corpus, same format as embeddings / hodge trajectories,
-#    so it lands in the RCDB vector store and is queryable alongside them)
-save_checkpoint("ckpt", model, "mlp", cfg, bundle=bundle, result=r)
-model, conf = load_checkpoint("ckpt")
-
-# complex: a hypergraph's relational complex to .rcbd, or catalogued in the RCDB
-save_complex_rex(bundle, "hg.rcbd")
-to_rcdb(bundle, "sqlite:///rcdb.sqlite", name="my_hg", tags=["hgnn"])   # stored by Betti/coherence signature
+model, configuration, bundle = build("mlp")
+save_checkpoint("checkpoint", model, "mlp", configuration, bundle=bundle)
+restored, saved_configuration = load_checkpoint("checkpoint")
 ```
 
-The flow: data (parquet / vectors / .rcbd / SQL) to DataBundle to model (weights to safetensors,
-config to json, training trajectory to `save_vectors`). For `hgnn` the complex goes to a `.rcbd`
-bundle or the RCDB, where it is queryable by its topology, not just id. The optimizer's own
-coordinated vs rotational trajectory (`rexgraph.nn.save_hodge_trajectory`) uses the same vector path.
+Loaders produce a `DataBundle` for model construction and training. Model weights
+are saved as safetensors and configuration as JSON. Training trajectories use
+`save_vectors`; `rexgraph.nn.save_hodge_trajectory` uses the same vector storage
+for Hodge components of optimizer updates. An `hgnn` source complex can be saved
+as a native `.rcbd` bundle or an RCDB record for structural queries.
 
-## Notes
+## Configuration
 
-- **Device**: defaults to `cpu`. Pass `device="auto"` to use the compute recommendation,
-  or request a Torch device explicitly. GPU training requires working kernels for that archetype;
-  availability depends on the installed Torch runtime and device.
-- **Data**: `vector` (csv/jsonl/npz) and `sequence` (text) load from files; for `image`/`hypergraph`,
-  pass a `DataBundle` (see `data.py`) or use the synthetic generators.
-- **Regression**: `params={"task": "regression"}` selects real targets, MSE training, real predictions,
-  and a `-test MSE` metric, including fusion. Direct table/vector loading accepts
-  `load_bundle(source, task="regression")`. Classification rejects fractional or negative class
-  indices. Unlabelled vector corpora retain `y=None` and yield no accuracy metric.
-- **HGNN flow**: `flow=False` runs only the vertex heat branch. The default includes the signed
-  cross grade flow. Model construction, `.rcbd` export and RCDB publication retain the declared
-  node count, including isolates, and stored participant order.
-- **Checkpoint semantics**: prediction without explicit data uses the saved archetype configuration
-  for synthetic data. `resume` loads feature model weights before starting a new optimizer; it is
-  a warm start. Exact optimizer/RNG continuation and source bound model records use Core's retained
-  model lifecycle (`rexgraph.nn.create_checkpoint`, `train_checkpoint`, and the RCQL model operators).
-  Those records check the recorded implementation and environment when resuming.
-- **Optimizer**: `auto` (default; routes per model type: GreensCochain for cochain native models, else Adam), or any `rexgraph.nn` optimizer by name: `greens`, `adam`, `adamw`, `sgd`, `hodge`/`hodge-arch` (deprecated, back compat).
+The device defaults to `cpu`. Pass `device="auto"` to use the compute
+recommendation or specify a Torch device. The selected runtime must support the
+archetype's operations.
+
+Vector inputs load from CSV, JSONL or NPZ files, and sequence inputs from text.
+Image and hypergraph inputs use a `DataBundle` or generated inputs;
+[data.py](data.py) defines the bundle fields.
+
+Set `params={"task": "regression"}` for real targets, mean squared error
+training and real predictions. The reported score is negative test MSE,
+including fusion. `load_bundle(source, task="regression")` selects the same
+target interpretation. Classification requires nonnegative integer class
+indices. Unlabelled vector data retains `y=None` and supplies no accuracy metric.
+
+For HGNN, `flow=False` selects vertex heat propagation only. The default also
+includes signed flow across grades. Model construction and native storage
+retain the declared node count, isolated vertices and participant order.
+
+The automatic optimizer uses `GreensCochain` for models with complex parameter
+groups and Adam for ordinary groups. Named choices are `greens`, `adam`, `adamw` and
+`sgd`.
+
+## Checkpoint semantics
+
+Prediction without explicit data generates inputs using the saved archetype
+configuration. `resume` performs a warm start by restoring weights and creating a
+new optimizer. To continue with saved optimizer and random state, use
+`rexgraph.nn.create_checkpoint`, `train_checkpoint` or the RCQL model lifecycle
+operators. Retained records check the implementation and environment when
+resuming.
 
 ## Larger numeric datasets
 
@@ -138,10 +126,10 @@ the files beforehand when you need a random split; chronological data can retain
 its order. Training samples within the training range. Split fusion partitions
 that range by strides, without a dataset sized permutation.
 
-Training moves only the sampled batch. Evaluation, prediction and fusion bound
-feature reads by `eval_batch_size`. Returning all predictions still requires host
-memory for that result. Mapped file pages can remain in the OS cache independently of tensor batches.
-Stacking recomputes base features rather than retaining a complete feature cache.
+Training transfers the sampled batch, while evaluation, prediction and fusion
+bound feature reads by `eval_batch_size`. Returning all predictions requires host
+memory for that result. The operating system can retain mapped pages in its
+cache. Stacking recomputes base features as needed.
 
 For `device="cuda"` on CUDA or ROCm, batches use pinned host memory and nonblocking
 copies on Torch's current stream. The loader fetches one batch at a time.

@@ -1,11 +1,12 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._rcfe: RCFE curvature, strain, and conservation laws.
+rexgraph.core._rcfe: curvature, strain and boundary residual calculations.
 
-Curvature C(sigma) measures how concentrated face structure is at each edge.
-Strain S = sum C(e) * RL[e,e] is the total structural stress.
-Bianchi identity: B1 @ diag(C) @ B2 = 0 (conservation law).
+Curvature C(e) sums squared face boundary coefficients after per face
+normalization. Strain is sum_e C(e) * RL[e,e]. Weighted residual routines
+measure B1 @ diag(C) @ B2; this product can be nonzero even when B1 @ B2 = 0.
+Dynamic strain routines compute sigma = B2 @ delta and check B1 @ sigma.
 """
 
 from __future__ import annotations
@@ -129,7 +130,7 @@ def verify_bianchi(B1, B2, curvature, Py_ssize_t nE, Py_ssize_t nF,
 
 
 def bianchi_residual(B1, B2, curvature, Py_ssize_t nE, Py_ssize_t nF):
-    """Per face Bianchi residual: ||B1 diag(C) B2[:,f]||."""
+    """Per face weighted boundary residual: ||B1 diag(C) B2[:,f]||."""
 
     if nF == 0:
         return np.zeros(0, dtype=np.float64)
@@ -407,7 +408,7 @@ def relational_strain_dynamic(np.ndarray[f64, ndim=2] B2,
     """Relational strain: sigma = B2 @ delta.
 
     sigma(e) measures the net face deficit across edge e.
-    B1 @ sigma = 0 by the chain condition (Bianchi conservation).
+    B1 @ sigma = 0 when the boundary closure condition holds.
 
     Returns f64[nE].
     """
@@ -459,9 +460,10 @@ def verify_bianchi_strain(np.ndarray[f64, ndim=2] B1,
                            np.ndarray[f64, ndim=1] sigma,
                            Py_ssize_t nV, Py_ssize_t nE,
                            f64 tol=1e-10):
-    """Verify Bianchi conservation: B1 @ sigma = 0.
+    """Check the boundary residual B1 @ sigma against the supplied tolerance.
 
-    Since sigma = B2 @ delta and B1 @ B2 = 0, this must hold exactly.
+    For sigma = B2 @ delta, the residual is zero when B1 @ B2 = 0.
+    The function evaluates the supplied sigma rather than assuming that construction.
 
     Returns (is_valid, max_residual).
     """
@@ -478,7 +480,7 @@ def strain_equilibrium(np.ndarray[f64, ndim=2] B1,
                         Py_ssize_t nV, Py_ssize_t nE, Py_ssize_t nF):
     """Full strain equilibrium analysis.
 
-    Computes optimal alpha, face deficit, relational strain, Bianchi check.
+    Computes optimal alpha, face deficit, relational strain and its boundary residual.
 
     Returns dict with alpha, delta, sigma, bianchi_ok, bianchi_residual,
     strain_norm.

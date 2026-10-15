@@ -1,4 +1,4 @@
-"""Module level hive task fns for the coordinator proc (forkserver) lane. These MUST be top level
+"""Module level hive task fns for the coordinator proc (forkserver) lane. These must be top level
 (picklable and importable in a forkserver child), so a closure over hive state cannot live here."""
 from __future__ import annotations
 

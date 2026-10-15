@@ -1,32 +1,16 @@
-"""
-rexgraph.graph: Orchestration layer for relational complexes.
+"""Store and analyze relational complexes through graded boundary operators.
 
-A k-rex is a relational complex of top grade k: a finite sequence of sparse
-boundary maps ``(B_1, ..., B_k)`` satisfying the chain condition
-``B_{d-1} B_d = 0``.  A primary C1 relation has the canonical boundary
-``(-1, 1/(k-1), ..., 1/(k-1))`` (or ``(+1)`` for a witness); its exact integer
-representative is ``(-(k-1), +1, ..., +1)``.  Higher grade declared boundaries
-are signed integer maps.  Relations are primitive and vertices are derived
-from their boundaries via the vertex lifecycle contract: a vertex exists if
-and only if some relation contains it in its boundary.
+RexGraph retains boundary incidence, declared weights, relation types and
+orientations. Adjacent boundaries satisfy ``B_d B_(d+1) = 0`` where the chain
+condition applies. A primary relation of arity r has canonical coefficients
+``(-1, 1/(r-1), ..., 1/(r-1))``, with integer representative
+``(-(r-1), +1, ..., +1)``; a witness has boundary ``(+1)``.
 
-RexGraph lazily composes core kernels through @cached_property accessors.
-The target kernel topology is a one way shared ABI dependency graph; several
-legacy Cython modules still import one another dynamically and are quarantined
-behind pairwise or numerical only public routes until they are migrated.
-
-Computation is organized into cached bundles that call the Cython
-builder functions in dependency order:
-
-    _adjacency_bundle  - _cycles.build_symmetric_adjacency()
-    _overlap_bundle    - _overlap.build_L_O()
-    spectral_bundle    - _laplacians.build_all_laplacians(B1, B2_hodge, L_O)
-
-Individual properties (L0, betti, coupling_constants, etc.) are thin
-accessors into the bundle dicts with no additional computation.
-
-TemporalRex wraps a sequence of snapshots sharing continuous identity,
-with delta encoded storage, BIOES phase detection, and lifecycle tracking.
+Properties construct sparse operators and cache derived values as needed.
+Structural mutations invalidate dependent caches. Python operators coordinate
+compiled storage, linear algebra, Hodge decomposition and channel calculations.
+TemporalRex stores snapshots and deltas with shared cell identity, reconstruction
+and lifecycle tracking.
 """
 
 from __future__ import annotations
@@ -64,7 +48,7 @@ _temporal = getattr(_core, '_temporal', None)
 _transition = getattr(_core, '_transition', None)
 _wave = getattr(_core, '_wave', None)
 
-# RCF modules (new in v2)
+# Structural channel modules
 _frustration = getattr(_core, '_frustration', None)
 _relational = getattr(_core, '_relational', None)
 _character = getattr(_core, '_character', None)
@@ -77,7 +61,7 @@ _dirac = getattr(_core, '_dirac', None)
 _hypermanifold = getattr(_core, '_hypermanifold', None)
 _common = getattr(_core, '_common', None)
 
-# v0.4 modules
+# Interfacing and comparison modules
 _interfacing = getattr(_core, '_interfacing', None)
 _channels = getattr(_core, '_channels', None)
 _cross_complex = getattr(_core, '_cross_complex', None)
@@ -393,15 +377,10 @@ _TIER_GLOBAL = frozenset({
 
 
 def _check_resistance_closes(rex, edges, values) -> None:
-    """Assert the identity the resistance has to satisfy: sum over ALL relations of
-    R_eff is rank(B1), an integer the complex reports independently.
+    """Check that effective resistances sum to rank(B1) over the full relation set.
 
-    Free when it applies, and it is the check that would have caught both defects this
-    machinery has had: CG diverging into a kernel it was blind to, and a kernel basis
-    whose vectors were not in the kernel. Both returned numbers; neither closed.
-
-    Only meaningful over the whole relation set, since a subset has no such total, so
-    it runs exactly there. Set REXGRAPH_SKIP_INVARIANTS=1 to turn it off.
+    A subset does not satisfy this total. Set ``REXGRAPH_SKIP_INVARIANTS=1`` to disable
+    the check for callers that explicitly accept unchecked numerical results.
     """
     import os
     if os.environ.get("REXGRAPH_SKIP_INVARIANTS"):
@@ -1941,11 +1920,8 @@ class RexGraph:
         self._ensure_clean()
         if self._is_standard_only:
             return _boundary.build_B1(self._nV, self._nE, self.sources, self.targets)
-        # General boundary, scattered straight into the DualCSR, which is what
-        # `_B2_dual` below already does. A branching complex has sum(arity) entries and
-        # nothing else, so a dense nV x nE is nV/arity times larger than the data: at
-        # nV 345539 and nE 1399989 that is 3.87 TB, and it caps every complex
-        # `from_hypergraph` builds.
+        # Scatter the general boundary directly into DualCSR, storing one entry
+        # per participant instead of allocating a dense nV by nE matrix.
         rows, cols, vals = self._b1_general_coo()
         return _sparse.dual_from_coo(rows, cols, vals, int(self._nV), int(self._nE))
 
@@ -2354,7 +2330,7 @@ class RexGraph:
     def _B2_hodge_dual(self):
         """DualCSR of B2 with chain violating faces filtered.
 
-        Filters faces where B_1 B_2[:, f] != 0, which violate the chain complex axiom.
+        Filters faces where B_1 B_2[:, f] != 0, which fail the boundary closure condition.
         Adjudicated exactly (`_chain_col_bounds`), sparsely, never a dense B1@B2.
         """
         if self._nF == 0 or self._B2_dual is None:
@@ -2439,10 +2415,8 @@ class RexGraph:
             False,                              # L0 Fiedler filled on first read
         )
         self._fill_cheap_edge_spectra(bundle)   # alpha_G + L1 Fiedler eigenpair
-        # The L0 Fiedler pair is a preconditioned eigensolve (14 s of the 23 s this
-        # bundle took on a 40652 vertex complex), and the character / coherence / void
-        # / betti paths that rebuild this bundle never read it. Same policy as
-        # edge_fiedler, and transparent: the keys resolve on first access.
+        # Resolve the L0 Fiedler eigensolve on first access. Character, coherence,
+        # void and Betti calculations can use the bundle without evaluating it.
         return _LazyL0Spectrum(
             bundle,
             self._B1_dual,
@@ -2485,11 +2459,9 @@ class RexGraph:
         """Fill only the O(nnz) edge space coupling into the scale free bundle:
             alpha_G = c^2 = G/T = tr((B2 B2^T)^2)/tr((B1^T B1)^2)   (exact integer traces, cheap)
 
-        The L1 Fiedler eigenpair is DELIBERATELY not built here. It needs an ARPACK smallest-
-        eigenvalue solve that costs O(seconds) on a large edge space, and the character / coherence /
-        agent monitor hot path (which rebuilds spectral_bundle constantly) never reads it. It is a
-        lazy accessor instead (`edge_fiedler` / `fiedler_val_L1` / `fiedler_vec_L1`), computed on
-        first demand. Building it eagerly here was the dominant cost of a large hive monitor step.
+        The L1 Fiedler eigenpair is computed on first access through edge_fiedler,
+        fiedler_val_L1 or fiedler_vec_L1. Character and coherence calculations
+        do not require this additional eigensolve.
         """
         nE = self._nE
         if nE == 0:
@@ -2504,9 +2476,8 @@ class RexGraph:
             # taken on the SMALL side of its own Gram pair:
             #     tr((B1^T B1)^2) = tr((B1 B1^T)^2) = ||L0||_F^2      (nV x nV)
             #     tr((B2 B2^T)^2) = tr((B2^T B2)^2)                   (nF x nF)
-            # Forming the edge side Gram instead costs Sum_v deg(v)^2 nonzeros, which a
-            # hub detonates: on the GO complex B1^T B1 came out 802162755 nnz in 14.5 s
-            # where B1 B1^T is 239524 nnz in 0.01 s, for the identical number.
+            # The edge Gram can require sum_v deg(v)^2 entries at vertices
+            # of high degree. Read the same trace from the vertex Gram.
             L0 = sp.csr_matrix(B1 @ B1.T)                                # nV x nV
             calT = float(L0.multiply(L0).sum())                          # tr((B1^T B1)^2)
             calG = 0.0
@@ -3398,7 +3369,7 @@ class RexGraph:
 
     @cached_property
     def local_coherence(self) -> NDArray:
-        """O(nnz) per vertex coherence κ_loc(v) = 1: 0.5·mean_{e∈star(v)}‖χ(e)-χ*(v)‖₁
+        """O(nnz) per vertex coherence κ_loc(v) = 1 - 0.5·mean_{e∈star(v)}‖χ(e)-χ*(v)‖₁
         - how consistent a vertex's incident edge characters are with their star
         average. Uses only the per edge character χ and χ* (diagonals, no solves),
         so it is available at every scale. This is the LOCAL tower coherence; the
@@ -3416,11 +3387,7 @@ class RexGraph:
         kloc = np.ones(self._nV, dtype=_f64)
         if chi_inc.shape[0] == 0:
             return kloc
-        # One pass over the incidences, not one Python iteration per vertex: the star
-        # average is a segmented sum, so repeat chi* along its own star and reduce by
-        # segment. Same arithmetic as the per vertex loop, without paying nV numpy
-        # dispatches (which is what made an O(nnz) quantity cost minutes at 40k
-        # vertices).
+        # Calculate the star average as a segmented sum over the stored incidences.
         counts = np.diff(v2e_ptr).astype(np.int64)
         seg = np.repeat(np.arange(self._nV, dtype=np.int64), counts)
         dev = np.abs(chi_inc - chi_star[seg]).sum(axis=1)         # per incidence
@@ -3598,26 +3565,24 @@ class RexGraph:
         return _spg.reliability_gap(self._rl4_sparse)
 
     def heat_character(self, t: float, mode: str = 'exact') -> NDArray:
-        """Scale resolved edge space character diag(e^{-t·RL4}): the general-f heat
-        propagator DIAGONAL. SUPERSEDED: a general matrix function diagonal has no
-        exact O(nnz) form and is blind to inter grade transport. Prefer
-        :meth:`dirac_light` (grade crossing heat in the Dirac vector space) for the
-        propagator, and energy_character (t->0 local star) + harmonic_entropy (t->∞
-        global role) for the exact O(nnz) heat moments. Kept as a research accessor
-        (mode='exact' dense exact, 'stochastic' uniform Hutchinson). Shape (nE,).
+        """Return the relation diagonal of exp(-t * RL4).
 
-        Calls the warning free internal impl directly (the public
-        ``_experimental.heat_propagator_diag`` wrapper is deprecation warned)."""
+        The method evaluates a Chebyshev polynomial of order 48. mode="exact"
+        uses identity blocks for a deterministic diagonal calculation;
+        mode="stochastic" uses random probe vectors. The result has shape
+        (nE,). energy_character and harmonic_entropy expose the corresponding
+        local and global moment measurements without a matrix function diagonal.
+        """
         import scipy.sparse as _sp
 
-        from rexgraph import _experimental as _exp
+        from rexgraph import _polynomial as _poly
         R = self._rl4_sparse
         R = R.tocsr() if _sp.issparse(R) else _sp.csr_matrix(np.asarray(R, dtype=_f64))
         n = R.shape[0]
         if n == 0:
             return np.zeros(0, dtype=_f64)
         lam_max = float(np.asarray(np.abs(R).sum(axis=1)).ravel().max())
-        return _exp._chebyshev_diag_impl(lambda P: R @ P, n,
+        return _poly._chebyshev_diag_impl(lambda P: R @ P, n,
                                          lambda l: np.exp(-float(t) * l),
                                          lam_max, lam_min=0.0, order=48, mode=mode)
 
@@ -3661,21 +3626,17 @@ class RexGraph:
 
     @cached_property
     def relaxation(self) -> dict:
-        """Edge centric relaxation via the MOMENT tower: the canonical relaxation object
-        (canon: relaxation = moments of one propagator on the EDGE operators, not a vertex
-        Fiedler value). One discoverable entry point onto quantities that already live in
-        the tower, all eigen free:
+        """Return relaxation measurements derived from relation operators.
 
-          effective_modes : e^{H2}: effective number of RL4 spectral modes (mode count)
-          harmonic_log    : H2 = -log(tr(RL4^2)/tr(RL4)^2)  (Renyi 2 collision entropy)
-          energy_character: diag(RL4^2) per edge : the LOCAL short time heat moment
-          greens_edge     : diag(L1^+)  per edge : the GLOBAL integrated self response
-          varentropy_gap  : H2: H3, a cheap certificate of when the 2nd-moment summary
-                            is trustworthy (~0 = exact)
+        The result includes the effective spectral mode count exp(H2),
+        harmonic_log H2, per relation energy_character diag(RL4^2),
+        greens_edge diag(L1^+) and the gap from character_varentropy.
+        Each quantity uses the existing cached operator calculation.
+        An empty complex or unavailable RCF modules returns an empty dict.
 
-        The per channel spectral GAP metric (lambda_2 / mixing times) is a SEPARATE scope
-        - channel_spectral_gaps / per_channel_mixing_times. That is a metric; this is the
-        relational relaxation."""
+        Per channel spectral gaps and mixing times are exposed separately
+        through channel_spectral_gaps and per_channel_mixing_times.
+        """
         if not _HAS_RCF or self._nE == 0:
             return {}
         H2 = float(self.harmonic_entropy)
@@ -3794,7 +3755,7 @@ class RexGraph:
         # SPARSE boundaries. Nothing on this path wants a dense B1/B2: the void
         # boundary needs each relation's two endpoint rows, the triangle match needs
         # each face's three relations, and the harmonic content already took sparse.
-        # Asking for self.B1 materialised nV x nE (45.8 GB on a 40k-vertex complex).
+        # Read the sparse boundary directly to avoid a dense nV by nE allocation.
         B1s = _sparse.to_scipy_csr(self._B1_dual)
         B2s = (_sparse.to_scipy_csr(self._B2_hodge_dual)
                if self._B2_hodge_dual is not None else None)
@@ -3927,7 +3888,7 @@ class RexGraph:
         """Full dynamic strain equilibrium analysis.
 
         The optimal coupling alpha = <B2 kappa, B2 pF> / ||B2 pF||^2, the face deficit
-        delta = kappa: alpha pF, the relational strain sigma = B2 delta and the Bianchi
+        delta = kappa - alpha * pF, the relational strain sigma = B2 delta and the boundary
         residual B1 sigma, which are the readings of `_rcfe.strain_equilibrium`, applied
         through the sparse boundaries rather than their dense materializations."""
         if not _HAS_RCF:
@@ -4014,7 +3975,7 @@ class RexGraph:
             dinv = np.where(np.abs(rl_diag) > 1e-30, 1.0 / rl_diag, 1.0)
             x = _block_cg(lambda P: RL @ P, b[:, None], dinv, tol=tol)[:, 0]
         else:                                              # heat: e^{-t·RL} b, matvecs
-            from rexgraph._experimental import _cheb_apply
+            from rexgraph._polynomial import _cheb_apply
             lam_max = (float(np.asarray(np.abs(RL).sum(axis=1)).ravel().max())
                        if RL.shape[0] else 1.0)
             x = _cheb_apply(lambda P: RL @ P, lambda l: np.exp(-t * l),
@@ -4249,7 +4210,7 @@ class RexGraph:
         # diffuse on the edge operator, then project the response back to vertices
         edge_resp = np.zeros(self._nE, dtype=_f64)
         if np.any(np.abs(b) > 0) and self._nE > 0:
-            from rexgraph._experimental import _cheb_apply
+            from rexgraph._polynomial import _cheb_apply
             RL = self._rl4_sparse
             lam_max = float(np.asarray(np.abs(RL).sum(axis=1)).ravel().max())
             edge_resp = _cheb_apply(lambda P: RL @ P, lambda l: np.exp(-t * l),
@@ -5075,12 +5036,9 @@ class RexGraph:
 
         `cycles` chooses what to wind around. Pass an nE x k chain matrix, or an
         iterable of `rexgraph.rings` masks, and the pairing costs one sparse matvec
-        against those k cycles alone. Left None it uses the full harmonic basis,
-        which is the right default only when beta_1 is small: a Gutenberg book runs
-        nE ~ 2e6 and beta_1 ~ 1.8e6, so the full frame is not a feature vector and
-        building it dominates everything. At that scale pass the cycles you care
-        about (`rings.relevant_cycles`, a retrieval walk, a section boundary)
-        and read the holonomy around those.
+        against those k cycles alone. Left None it constructs the full harmonic
+        basis, with beta_1 columns. For a large beta_1, supply selected cycles
+        from `rings.relevant_cycles`, a retrieval walk, or a section boundary.
         """
         from rexgraph.harmonic_sparse import harmonic_basis, harmonic_winding
         if cycles is None:
@@ -5658,36 +5616,27 @@ class RexGraph:
 
     @cached_property
     def equiweight_residual(self) -> int:
-        """||Gamma D + D Gamma||, the EQUIWEIGHT residual. Exactly 0 on any relational
-        complex, returned as the integer 0 rather than a float near it.
+        """Return the grading anticommutator residual as the integer zero.
 
-        Equiweight is a DERIVED axiom: it follows from the chain condition and the
-        definition of D, and is not assumed anywhere. Proof, one line of block
-        bookkeeping: (Gamma D)[d-1,d] = (-1)^{d-1} B_d and (D Gamma)[d-1,d] = (-1)^d B_d,
-        so the two cancel. Entrywise the anticommutator is (gamma_i + gamma_j) * D[i,j],
-        and D is supported only between consecutive grades, which have opposite parity.
+        The assembled Dirac operator connects consecutive grades only. Those
+        grades have opposite signs in Gamma, so every entry of Gamma D + D Gamma
+        is zero by the block layout. This property returns zero without allocating
+        the full operator.
 
-        Nothing is materialised here: the identity is a statement about which grades D
-        connects, so it is settled by the block structure. D is built from B1 and B2
-        alone, so its support is consecutive grade by construction and the residual is 0
-        without forming an (nV+nE+nF)^2 operator. `rexgraph.dirac_propagator.
-        equiweight_residual` is the version that takes an arbitrary operator, which is
-        the non vacuous use: on something that is NOT a graded Dirac the residual is a
-        distance from being one.
+        Use rexgraph.dirac_propagator.equiweight_residual to measure the residual
+        of a supplied matrix. Boundary closure is checked separately.
         """
         return 0
 
     @cached_property
     def hodge_symmetry(self) -> dict:
-        """Lem 4.8, the consequence of equiweight: dim K^{p,q} = dim K^{q,p}.
+        """Return the positive, negative and harmonic Dirac mode counts.
 
-        Gamma D Gamma = -D (equiweight plus Gamma^2 = I), so Gamma conjugates D to its
-        negative and pairs every eigenvector with one of opposite eigenvalue. The nonzero
-        spectrum is therefore symmetric about 0 and the counts match exactly.
-
-        `n_harmonic` is the EXACT integer sum of the Betti numbers (dim ker D = ker of
-        each graded Laplacian), taken from the rank path rather than by thresholding
-        eigenvalues, so the positive/negative split is what remains after an exact count.
+        The alternating grading pairs the nonzero spectrum about zero. This
+        property counts harmonic modes using the exact rank path, subtracts that
+        count from dirac_dimension and splits the remainder equally between
+        positive and negative modes. It does not compute or threshold eigenvalues.
+        The symmetric field reports whether the remainder is even.
         """
         n_harm = int(self.dirac_harmonic_count)
         n_rest = int(self.dirac_dimension) - n_harm
@@ -5726,11 +5675,8 @@ class RexGraph:
                 self.B1, self._nV, self._nE, self.nF_hodge, vertex_idx)
         psi0 = np.ascontiguousarray(psi0, dtype=_f64)
 
-        # e^{-iDt} applied to ONE state is a Chebyshev matvec on the sparse Dirac; the
-        # mode sum needs the whole spectrum to answer the same question, and taking it
-        # dense was 25.5s of a 29.5s analysis at nE=2400. `dirac_propagator` is the
-        # matrix free form and is grade general. The mode sum route stays reachable
-        # through `_dirac_eigen` for the trajectory API and as the oracle.
+        # Apply exp(-iDt) through the sparse Dirac polynomial. The full mode sum
+        # remains available through _dirac_eigen for trajectory calculations.
         try:
             from rexgraph.dirac_propagator import dirac_from_rex
             return dirac_from_rex(self).light(psi0, t=float(t))
@@ -5794,7 +5740,7 @@ class RexGraph:
     def hypermanifold(self) -> dict:
         """Filtered manifold sequence M1 < M2 < M3.
 
-        Each level adds cells, DOF, Bianchi identities.
+        Each level reports cell counts, total dimension and Betti numbers.
         """
         if _hypermanifold is None:
             raise RuntimeError("_hypermanifold module not available")
@@ -6336,7 +6282,7 @@ class RexGraph:
             cos2 = (G * G) / denom
         cos2[denom == 0] = 0.0
         cos2[G < 0] = 0.0                    # the same clamp fiber_similarity applies
-        # 1: TV = sum of elementwise minima, exact for probability vectors
+        # 1 - TV = sum of elementwise minima, exact for probability vectors
         overlap = np.array([
             [np.minimum(phi[i], phi[j]).sum() for j in range(self._nV)]
             for i in range(self._nV)], dtype=_f64)
@@ -6421,7 +6367,7 @@ class RexGraph:
         the orientation content as one rational number.
 
         The difference is non zero on an odd cycle (a triangle's signed columns are
-        dependent and its unsigned ones are not), but ONLY while both determinants can
+        dependent and its unsigned ones are not), but only while both determinants can
         be non zero. A determinant of a Gram over more columns than the operator's rank
         is zero for a counting reason, so once `n_cells > n_rows` both vanish and their
         difference says nothing at all. `informative` reports whether the reading is in
@@ -8187,7 +8133,7 @@ def _temporal_face_state_needs_identity_checkpoint(face_state) -> bool:
 
 def _require_temporal_kernel_identity(snapshots, *, general: bool, directed: bool,
                                       operation: str) -> None:
-    """Prove that a support keyed temporal kernel has an unambiguous C1 carrier.
+    """Check that a temporal kernel keyed by support has an unambiguous C1 carrier.
 
     Checkpoints preserve repeated relation supports as a multiset, so reconstruction is
     safe without an external identity field. Index/lifecycle/delta summaries are a
@@ -8273,7 +8219,7 @@ def apply_edge_delta(rex, delta):
                                signs=np.asarray(delta.born_signs)[other])
     # 3. modified: resolve keys to current indices, set attrs. A mod_key is only
     # ever emitted for a cell present in BOTH prev and curr (a persisting cell),
-    # so in a correctly sequenced replay every mod_key MUST resolve; fail loud
+    # so in a correctly sequenced replay every mod_key must resolve; fail loud
     # rather than silently reconstruct the wrong state.
     if delta.mod_keys.shape[0]:
         rex._ensure_clean()
@@ -8496,7 +8442,7 @@ class TemporalRex:
         self._directed = directed
         self._general = general
         self._T = len(snapshots)
-        # Wall clock (or experiment clock) per step. Absent, the step index IS the
+        # Wall clock per step. Absent, the step index IS the
         # time: the identity bridge, so a store built without timestamps behaves
         # exactly as it always did.
         self._times = [float(i) for i in range(self._T)]
@@ -8557,7 +8503,7 @@ class TemporalRex:
     def reconstruct_at_time(self, when: float) -> RexGraph | None:
         """The complex as it stood at `when`. The bridge between this store's step
         index and any clock the rest of the system records in (the RCDB's tx and
-        validity times, an instrument's timestamps, an experiment's passages)."""
+        validity times, an instrument's timestamps, explicit sampling times)."""
         t = self.step_at(when)
         return None if t is None else self.reconstruct_at(t)
 

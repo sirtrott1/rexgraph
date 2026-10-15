@@ -119,10 +119,7 @@ import functools
 
 
 def test_execute_runs_picklable_fn_on_the_proc_lane():
-    # The forkserver proc lane (the whole point of the 5.8x multicore path) must
-    # actually execute, not just be assign()-routed. Use a builtin backed partial
-    # (picklable AND importable in the forkserver child; a fn defined in this
-    # non package test module would not be importable there).
+    # Use a builtin partial that the forkserver child can deserialize and import.
     from rexgraph.coordinator import execute
     units = [{"id": f"c{i}", "type": "cpu_coordination",
               "fn": functools.partial(pow, i, 2)} for i in range(4)]

@@ -322,7 +322,7 @@ def dirac_heat(rex, t, psi0=None):
 
 
 
-# Equiweight: the derived axiom, and its use as a distance
+# Residual of the grading anticommutator
 
 def graded_grading(sizes) -> np.ndarray:
     """The chiral grading Gamma = diag((-1)^grade) for a graded space, as a +/-1 vector.
@@ -338,23 +338,20 @@ def graded_grading(sizes) -> np.ndarray:
 
 
 def equiweight_residual(D, sizes, *, ord: str = "max") -> float:
-    """||Gamma D + D Gamma||, the equiweight residual of an ARBITRARY graded operator.
+    """Measure ||Gamma D + D Gamma|| for a supplied graded operator.
 
-    Equiweight is the derived axiom Gamma D + D Gamma = 0. It follows from the chain
-    condition and the definition of D: (Gamma D)[d-1,d] = (-1)^{d-1} B_d while
-    (D Gamma)[d-1,d] = (-1)^d B_d, so the blocks cancel. Because D connects only
-    consecutive grades and consecutive grades have opposite parity, every block vanishes.
+    Gamma assigns +1 to even grades and -1 to odd grades. Each residual entry
+    is (gamma_i + gamma_j) * D[i,j], so connections between opposite parity
+    grades contribute zero. Connections between grades of the same parity,
+    including diagonal entries, contribute twice their signed coefficient.
 
-    On a relational complex this is identically zero, so measuring it there says nothing.
-    The reason this takes a raw operator rather than a RexGraph is the contrapositive:
-    an operator that fails it is not a graded Dirac, and the residual is a DISTANCE from
-    being one. Entrywise the anticommutator is (gamma_i + gamma_j) * D[i,j], which is 0
-    when i and j sit in grades of opposite parity and 2*D[i,j] when they do not. So the
-    residual measures exactly the mass D puts between same parity grades, including a
-    grade talking to itself on the diagonal.
+    The Dirac operator assembled from adjacent boundary blocks has zero
+    residual by its support pattern. For other operators this function measures
+    the magnitude of entries that violate that pattern. A zero residual alone
+    does not check boundary closure, symmetry or adjacency of connected grades.
 
-    `ord` is "max" (the largest entry) or "fro" (Frobenius). Both are 0 exactly when the
-    identity holds.
+    The grade sizes must sum to D's dimension. ord="max" returns the largest
+    absolute entry; ord="fro" returns the Frobenius norm.
     """
     D = np.asarray(D, dtype=np.float64)
     if D.ndim != 2 or D.shape[0] != D.shape[1]:

@@ -411,11 +411,13 @@ def test_ocr_adapter_interpret():
 
 
 def test_offline_client():
-    """OfflineOCRClient should return results without errors."""
+    """Exercise local OCR when the engine and English data are available."""
     print("── Offline OCR client ──")
 
     client = OfflineOCRClient()
-    # Even without Tesseract, should return empty results gracefully
+    if not client.is_available():
+        import pytest
+        pytest.skip("Tesseract and English language data are required")
 
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
         _create_test_image(f.name)

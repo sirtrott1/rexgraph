@@ -1,12 +1,9 @@
-"""rexgraph.flow.online: native online predict then observe field, no external
-deep learning framework dependency.
+"""Predict and update edge cochain values as a relational complex changes.
 
-GreensCochainField is the owner's Green's-cochain math applied ONLINE as one
-propagate (predict) plus one relational correction (update) per event, over the
-co participation Laplacian L_C. State is a cochain phi over edges keyed by the
-canonical cell key so it survives index shifts. No epochs, no learning rate, no
-embeddings, no argmax classifier: the update is a matrix free Green's solve via
-_block_cg and one preconditioned residual step, pure numpy/scipy.
+GreensCochainField propagates predictions over the coparticipation channel and
+corrects them from observed targets with a matrix free Green solve and residual
+step. Edge values retain support or lineage identity across index changes. The
+numerical implementation uses NumPy, SciPy and compiled boundary helpers.
 """
 from __future__ import annotations
 
@@ -27,11 +24,10 @@ def _keys_of(rex) -> NDArray:
 
 
 def _sparse_L_C(rex):
-    """The co participation line graph Laplacian as scipy CSR, or None if the
-    line graph has no edges (trace zero channel dropped). `rex.L_coPC` only
-    reads the DENSE bundle (opt in, O(nE^2)); the scale free accessor is the
-    per channel sparse builder, matching rexgraph.tests.test_relational's own
-    `dict(build_sparse_channels(g)).get('L_C')` idiom."""
+    """Return the coparticipation channel as SciPy CSR, or None for a zero channel.
+
+    The sparse channel builder avoids constructing the optional dense operator bundle.
+    """
     return dict(build_sparse_channels(rex)).get('L_C')
 
 

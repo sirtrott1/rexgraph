@@ -1,30 +1,13 @@
-"""
-agent.analytics: columnar queries over what the store already knows.
+"""Columnar queries over record signatures from an existing store.
 
-Every backend can answer "which records match this predicate" by walking its
-signatures, and all of them take about the same 10-24 ms over eight thousand
-records because all of them are doing the same row at-a-time work. What none of
-them can answer at all is the shape of question you actually ask of a corpus:
-how does kappa distribute across sources, which betti values are over represented,
-what is the median edge count per tag. The signature is a document, and
-aggregating documents means writing the loop yourself.
-
-A signature is a fixed set of scalars per record. That is a table, and a columnar
-engine reads tables about twenty times faster than a scan does:
-
-    structural filter over 8000 signatures   store 10.5 ms   duckdb 0.52 ms
-    group-by + aggregate                     store  n/a      duckdb 0.58 ms
-
-So this is not another backend. It is a view: signatures are projected out of
-whatever store holds them, and the answers come back as ids that store can then be
-asked for. Nothing moves, nothing is duplicated on disk, and the store stays the
-one place a complex lives.
+signature_view projects signature scalars into a DuckDB table for filtering,
+grouping and aggregation. Query results can return record IDs for retrieval
+from the original store. Complex records remain in that store.
 
     from agent import analytics
     view = analytics.signature_view(store)
     view.sql("SELECT source, avg(kappa_mean) FROM signatures GROUP BY source")
-    view.ids("betti1 > 2 AND chain_valid = 1")
-"""
+    view.ids("betti1 > 2 AND chain_valid = 1")"""
 
 from __future__ import annotations
 

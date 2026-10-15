@@ -1,4 +1,4 @@
-"""agent.agentic_db: a live database as a first class member of the agentic RCDB.
+"""Expose a live SQL database through Agent workers and RCDB schema records.
 
 An AgenticDB wraps a live SQL database (any SQLAlchemy dialect) and makes it
 interoperate with the hive and the Relational Complex Database (agent.rcdb):
@@ -7,9 +7,8 @@ interoperate with the hive and the Relational Complex Database (agent.rcdb):
     the database's *structure* is queryable topology (circular FK dependencies,
     hub tables, missing-FK voids) and part of agentic memory.
   * A natural language question is mapped onto that schema complex by the query
-    manager: the tables it touches, and, crucially, the JOIN is derived from
-    the schema's FK graph (shortest paths, junction tables auto-inserted), not
-    guessed by a model. A question referencing tables with no relational path is
+    manager. Joins are derived from the schema's foreign key graph using
+    shortest paths and junction tables. A question referencing tables with no relational path is
     refused as an invalid reference.
   * search / extract / classify are read operations; modify is a guarded write
     (read-only by default; INSERT/UPDATE/DELETE only; DDL blocked).

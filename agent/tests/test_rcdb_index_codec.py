@@ -187,11 +187,12 @@ def test_an_unreadable_format_version_is_refused(tmp_path):
 # the boundary operator is the arrays the index already holds
 
 def test_boundary_operator_is_built_from_the_stored_arrays_not_rebuilt():
-    """`rel_ptr`/`rel_idx` ARE the column structure (relation `e` occupies
-    `rel_idx[rel_ptr[e]:rel_ptr[e+1]]` with the record first) so B1 is those arrays plus
-    the values arity determines. Reconstructing a RexGraph to reach the same matrix
-    measured 40 s on the 61,353 record store against 1.3 s here, byte identical, and it
-    was paid by the first query of every process."""
+    """Compare the index boundary operator with its stored column arrays.
+
+    rel_ptr and rel_idx define each relation's participant indices. The
+    values follow the stored arity convention without reconstructing a
+    separate RexGraph.
+    """
     import numpy as np
     from rexgraph.core._sparse import to_scipy_csr
 
@@ -275,14 +276,12 @@ def test_frustration_is_structurally_zero_at_the_accession_grade():
 
 
 def test_the_seed_degree_is_per_vertex_and_not_per_relation():
-    """`boundary_operator` returns CSC, so `np.diff(B.indptr)` counts per COLUMN (per
-    relation) and the seeds are VERTEX indices. Using the wrong one mis weights every
-    seed silently and then raises IndexError once a vertex id exceeds the relation count.
+    """Check vertex seed degrees independently of relation column lengths.
 
-    That is exactly what happened: it passed on small fixtures because there every vertex
-    id is below nE, and on the 61,353 record store it raised inside a bare `except` that
-    turned an 88 s scan fallback into the observed behaviour. This asserts the shape
-    relationship that makes the two distinguishable at fixture size."""
+    The fixture has more vertices than relations. boundary_operator returns
+    CSC, whose pointer differences count columns; seeding needs row degrees
+    indexed by vertices instead.
+    """
     import numpy as np
 
     from agent import rcdb_index as ix

@@ -74,14 +74,11 @@ def plan_split(rates, n_tasks: int, policy: str = "contention") -> dict:
 
 
 def expected_makespan(rates, split: dict, tokens_each: int) -> float:
-    """Seconds until the LAST bee finishes, which is what a batch actually costs.
+    """Estimate the seconds until all assigned workers finish.
 
-    PIECEWISE, because contention ends. While several bees are working they all run at
-    their contended rates; the moment one finishes, the survivors speed up. Charging the
-    contended rate for the whole run overestimates badly: it predicted 116.7s for an
-    even split that actually took 61.0s, because the iGPU finished early and the CPU ran
-    the tail alone at more than twice its contended rate.
-    """
+    Workers use their contended rates while several remain active. When only
+    one worker remains, its remaining tokens use its solo rate. Each completion
+    advances the piecewise calculation to the next active worker set."""
     by = {r.name: r for r in rates}
     left = {n: c * tokens_each for n, c in split.items() if c > 0}
     if not left:

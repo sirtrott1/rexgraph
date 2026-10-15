@@ -75,9 +75,9 @@ def refine(typed, children, context):
             if value.domain.source is not context.binding.value or graded_map_descriptor(value) != replace(
                     expected.graded_map, chain_preserving=None):
                 raise ValueError("homotopy descriptor does not match its supplied map")
-        proof = ChainHomotopy(left, right, witness)
+        verification = ChainHomotopy(left, right, witness)
         facts = [PredicateResult("homotopy_certificate", "verified",
-                 f"both chain maps verified; exact G-F-BH-HB residuals = {proof.residuals}")]
+                 f"both chain maps verified; exact G-F-BH-HB residuals = {verification.residuals}")]
     else:
         facts = [PredicateResult("homotopy_certificate", "deferred",
                  "execution must verify both endpoint maps and G-F=BH+HB over Q at every grade")]

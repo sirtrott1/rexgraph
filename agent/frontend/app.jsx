@@ -594,7 +594,7 @@ function Models(){
       embStat?h("pre",{className:"json"},JSON.stringify(embStat,null,2))
              :h(Empty,{title:"Not checked"},"Check to see whether an embedder is running.")),
     h(Card,{title:h("span",{className:"lbl-help"},"Live inference servers. Running endpoints on this host",h(Help,null,"Probes Ollama, vLLM, llama.cpp, LM Studio and TGI on their well-known ports, plus anything in REXGRAPH_PROBE_URLS. These are serving endpoints, not files on disk.")),actions:h("button",{className:"sm",onClick:probeEndpoints,disabled:epBusy},epBusy?"Probing…":"Probe")},
-        
+
         !eps?h("p",{className:"muted"},"Click ",h("strong",null,"Probe")," to scan for running servers."):
           (eps.endpoints&&eps.endpoints.length?h(Table,{cols:[
             {l:"Endpoint",r:function(x){return h("code",{style:{fontSize:11}},x.url)}},
@@ -1266,7 +1266,7 @@ function System(){
             h("input",{className:"input",value:newLabel,onChange:function(ev){setNl(ev.target.value)},placeholder:"user id, e.g. alice",style:{flex:1}}),
             h("select",{className:"input",value:newRole,onChange:function(ev){setNr(ev.target.value)},style:{width:100}},h("option",{value:"user"},"user"),h("option",{value:"admin"},"admin")),
             h("button",{className:"primary sm",onClick:addMember},"Add / Update")),
-          
+
           genTkn&&h("div",{style:{marginTop:8,padding:12,background:"var(--gold-bg)",border:"1px solid var(--gold-border)",borderRadius:"var(--radius-sm)"}},
             h("p",{style:{fontSize:12,fontWeight:600,color:"var(--gold)",marginBottom:6}},"Give this token to the member. Shown once."),
             h("input",{className:"input",value:genTkn,readOnly:true,onClick:function(ev){ev.target.select()},style:{fontFamily:"var(--mono)",fontSize:12}}),
@@ -1642,7 +1642,7 @@ function Schema(){
     res&&h("div",null,
       h("div",{className:"grid-4",style:{marginBottom:10}},
         h(Stat,{value:res.n_tables,label:"Tables"}),h(Stat,{value:res.n_foreign_keys,label:"Foreign keys"}),
-        
+
         h("div",{className:"stat"},h("div",{style:{marginBottom:4}},h(Badge,{type:res.verdict==="acyclic"?"good":res.verdict==="cycles_present"?"fail":"gold"},res.verdict)),h("div",{className:"stat-label"},"Verdict"))),
       res.hodge&&h(Card,{title:"Dependency shape"},
         h(Finding,{verdict:INTERPRET.schema_verdict(res),note:INTERPRET.schema_note(res),tone:(res.hodge.persistent_circulation_harmonic>0)?"bad":"ok",detail:"Hodge decomposition of the foreign-key complex.",about:"Splits every dependency path into three parts that sum to the whole: descending a hierarchy, returning to the start but bounding a face, and cycling with nothing to bound it.",values:[["gradient",pct(res.hodge.hierarchy_gradient),"strict hierarchy"],["curl",pct(res.hodge.bounded_recursion_curl),"recursion that terminates"],["harmonic",pct(res.hodge.persistent_circulation_harmonic),"cycle with no resolution"],["DAG validity",res.ontology_validity!=null?pct(res.ontology_validity):"—",""]]}),
@@ -2093,7 +2093,7 @@ function Setups(){
           h("div",{style:{display:"flex",gap:8}},
             field("Optimizer",h("select",{className:"input",value:draft.optimizer,onChange:function(e){edit("optimizer",e.target.value)}},[["auto","auto ✦ (routes per model)",false]].concat(optsFor("optimizer",[["greens","greens ✦"],["adam","adam"]])).map(function(o){return h("option",{key:o[0],value:o[0],disabled:o[2]},o[1])}))),
             field("Attention",h("select",{className:"input",value:draft.attention,onChange:function(e){edit("attention",e.target.value)}},optsFor("attention",[["relational","relational ✦"],["standard","standard"]]).map(function(o){return h("option",{key:o[0],value:o[0],disabled:o[2]},o[1])})))),
-          
+
           field("Monitor",h("label",{style:{fontSize:12}},h("input",{type:"checkbox",checked:!!draft.monitor_embed,onChange:function(e){edit("monitor_embed",e.target.checked)}})," use the embedder for the semantic alignment signal")),
           h("div",{style:{marginTop:8,borderTop:"1px solid var(--border)",paddingTop:8}},
             h("div",{style:{fontSize:11,color:"var(--muted)",marginBottom:4}},"Compute (execution layer), honored by every operation"),
@@ -2513,7 +2513,7 @@ function ModelStudio(){
       selA&&h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:8}},Object.keys(prm).map(function(k){var v=prm[k];var isB=typeof v==="boolean";return h("div",{key:k},h("label",{style:{fontSize:11,color:"var(--muted)",display:"block"}},k),isB?h("label",{style:{fontSize:12}},h("input",{type:"checkbox",checked:v,onChange:function(e){edit(k,e.target.checked)}})," ",String(v)):h("input",{className:"input",value:v,onChange:function(e){var nv=e.target.value;edit(k,(typeof v==="number"&&nv!==""&&!isNaN(nv))?Number(nv):nv)}}))})),
       selA&&h("div",{className:"input-row",style:{marginTop:10}},
         h("input",{className:"input",style:{flex:2},value:dpath,onChange:function(e){setDp(e.target.value)},placeholder:"data path (parquet/.rcbd/csv/…, blank = synthetic)"}),
-        h("select",{className:"input",value:opt,onChange:function(e){setOpt(e.target.value)}},["auto","greens","adam","adamw","sgd","hodge","hodge-arch"].map(function(o){return h("option",{key:o,value:o},o)})),
+        h("select",{className:"input",value:opt,onChange:function(e){setOpt(e.target.value)}},["auto","greens","adam","adamw","sgd"].map(function(o){return h("option",{key:o,value:o},o)})),
         h("select",{className:"input",value:mode,onChange:function(e){setMode(e.target.value)}},["single","multistep","fusion"].map(function(o){return h("option",{key:o,value:o},o)})),
         h("input",{className:"input",style:{width:80},type:"number",value:steps,onChange:function(e){setSt(Number(e.target.value)||150)}}),
         h("button",{className:"primary",onClick:runTrain,disabled:busy||!sel},busy?"Training…":"Train")),
@@ -2916,7 +2916,7 @@ function withHelp(label,t){return h("span",{className:"lbl-help"},label,h(Help,n
      standard   what this is describing, as the specific relevant detail
      advanced   what it literally is: the named construction and its values
 
-   Any mathematical term, theorem or symbol lives only in the advanced half,
+   Technical operator names and symbols appear in the advanced half,
    and its explanation lives in a Help companion rather than inline, so the
    exact value is never crowded by prose. */
 function Finding(p){

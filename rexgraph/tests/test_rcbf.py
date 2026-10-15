@@ -218,3 +218,63 @@ def test_rcbf_temporal_tail_requires_an_explicit_current_snapshot_opt_in(tmp_pat
         [0, 1, 2],
         [2, 3],
     ]
+
+
+def test_rcbf_slot_only_metadata_survives_rcbd_and_rcdb(tmp_path):
+    from rexgraph.io import save_rcbd, load_rcbd
+
+    path = tmp_path / "slots.rcbf"
+    _write_rcbf(path, slot_attributes=(((2, "role", "product"),), ()))
+    graph = load_rcbf(path)
+    expected = [[{"slot": 2, "key": "role", "kind": "text", "value": "product"}], []]
+    assert graph._agent_meta["rcbf"]["slot_attributes"] == expected
+    save_rcbd(tmp_path / "slots.rcbd", graph)
+    graph = load_rcbd(tmp_path / "slots.rcbd")
+    rcdb = pytest.importorskip("rcdb")
+    store = rcdb.LocalStore(str(tmp_path / "store"))
+    try:
+        store.put("slots", graph, analytics=False)
+        assert store.get("slots")._agent_meta["rcbf"]["slot_attributes"] == expected
+    finally:
+        store.close()
+
+
+def test_rcbf_preserves_face_names_through_conversion(tmp_path):
+    from rexgraph.io import save_rcbd, load_rcbd
+
+    path = tmp_path / "face.rcbf"
+    _write_rcbf(path, supports=((0, 1), (1, 2), (0, 2)),
+                faces=(((0, 1, 2), (1.0, 1.0, -1.0)),))
+    graph = load_rcbf(path)
+    assert graph.get_metadata(2, 0, "rcbf_name") == "f0"
+    save_rcbd(tmp_path / "face.rcbd", graph)
+    assert load_rcbd(tmp_path / "face.rcbd").get_metadata(2, 0, "rcbf_name") == "f0"
+
+
+def test_rcbf_timeless_stream_refuses_unclaimed_tail(tmp_path):
+    path = tmp_path / "extra.rcbf"
+    _write_rcbf(path)
+    path.write_bytes(path.read_bytes() + b"unclaimed")
+    with pytest.raises(RCBFFormatError, match="trailing"):
+        load_rcbf(path)
+
+
+def test_rcbf_all_truncated_prefixes_refuse(tmp_path):
+    path = tmp_path / "truncated.rcbf"
+    _write_rcbf(path, slot_attributes=(((1, "role", "input"),), ()))
+    complete = path.read_bytes()
+    for end in range(len(complete)):
+        path.write_bytes(complete[:end])
+        with pytest.raises(RCBFFormatError):
+            load_rcbf(path)
+
+
+def test_rcbf_duplicate_signal_names_refuse_instead_of_overwriting(tmp_path):
+    path = tmp_path / "signals.rcbf"
+    _write_rcbf(path, signals={"same": (1.0, 2.0)})
+    raw = bytearray(path.read_bytes())
+    struct.pack_into("<I", raw, 28, 2)
+    raw = raw[:-4] + _cstring("same") + struct.pack("<2d", 3.0, 4.0) + raw[-4:]
+    path.write_bytes(raw)
+    with pytest.raises(RCBFFormatError, match="repeats a signal"):
+        load_rcbf(path)

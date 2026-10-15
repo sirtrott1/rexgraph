@@ -64,12 +64,12 @@ def test_embedding_alignment_recognizes_disjoint_specialist():
         ("bio", "router", "p53 tumor suppressor mutation disrupts apoptosis"),
         ("router", "chem", "inhibitor molecule receptor enzyme binding"),
         ("chem", "router", "inhibitor binds receptor affinity enzyme"),
-        ("router", "math", "prove the theorem using the integral and eigenvalue decomposition"),
+        ("router", "math", "compute the operator using the integral and eigenvalue decomposition"),
         ("math", "router", "the eigenvalue decomposition gives the integral via matrix diagonalization"),
         ("drift", "router", "i enjoy pizza sunny weather beach vacation"),
     ]
     ac = AgentComplex().add_messages([{"from": a, "to": b, "text": t} for a, b, t in convo])
-    TECH = set(["tumor", "suppressor", "gene", "mutation", "apoptosis", "cell", "p53", "disrupts", "inhibitor", "molecule", "receptor", "enzyme", "binding", "affinity", "theorem", "integral", "eigenvalue", "decomposition", "matrix", "diagonalization", "prove"])
+    TECH = set(["tumor", "suppressor", "gene", "mutation", "apoptosis", "cell", "p53", "disrupts", "inhibitor", "molecule", "receptor", "enzyme", "binding", "affinity", "operator", "integral", "eigenvalue", "decomposition", "matrix", "diagonalization", "compute"])
     CAS = set(["pizza", "sunny", "weather", "beach", "vacation", "enjoy"])
 
     def mock_embed(texts):

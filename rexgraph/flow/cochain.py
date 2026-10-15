@@ -76,7 +76,7 @@ if _HAS_TORCH:
             n_classes: number of edge classes.
             green_lam / green_iters / green_channel: the Green's-preconditioning knobs (``"low"`` is
                 the co-participation smoother; the k-hop channels remain available for heterophily).
-            restrict_vertices: optional connector-vertex restriction, for ablations.
+            restrict_vertices: optional connector-vertex restriction, for selected subcomplexes.
         """
 
         def __init__(self, rex, n_classes, *, green_lam=4.0, green_iters=20,

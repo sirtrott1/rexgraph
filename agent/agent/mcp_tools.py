@@ -544,7 +544,7 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
          _restrict, required=["quantity", "op", "threshold"], wants_context=True),
     Tool("rexgraph_curvature",
          "Where a complex is strained: the per-face boundary curvature "
-         "kappa_f = ||B1 B2[:, f]||, ranked, plus the Bianchi conservation residual "
+         "kappa_f = ||B1 B2[:, f]||, ranked, plus the boundary residual B1 @ sigma "
          "over the same field. Reports which face carries the strain rather than a "
          "single number for the whole object.",
          {"files": _FILES,

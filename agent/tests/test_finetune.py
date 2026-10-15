@@ -69,7 +69,7 @@ def test_finetune_phase_degrades_cleanly_and_reads_setup(monkeypatch):
     monkeypatch.setattr(finetune, "deps_available",
                         lambda: {"have": {}, "ready": False, "need": "pip install -e '.[finetune]'",
                                  "missing": ["transformers"]})
-    hive_config.get_store().save(hive_config.HiveProfile(id="p", name="P", optimizer="hodge"))
+    hive_config.get_store().save(hive_config.HiveProfile(id="p", name="P", optimizer="adamw"))
     hive_config.get_store().set_active("p")
     rl = lifecycle.run("finetune", steps=1)
     assert rl.status == "ok"                      # a missing extra is not a failure
@@ -85,8 +85,8 @@ def test_finetune_ab_runs_both_optimizers(monkeypatch):
         calls.append(optimizer)
         if on_step:
             on_step(label or optimizer, 0, 2.0, steps)
-        # hodge generalizes clearly better on the held out eval here
-        ev = 0.8 if optimizer == "hodge" else 1.2
+        # The stub supplies distinct evaluation losses to test result selection
+        ev = 0.8 if optimizer == "adamw" else 1.2
         return {"optimizer": optimizer, "optimizer_class": optimizer.title(),
                 "loss_start": 2.0, "loss_final": 1.0, "eval_start": 2.0, "eval_final": ev,
                 "eval_trajectory": [2.0, 1.5, ev], "trajectory": [2.0, 1.5, 1.0], "adapter": None}
@@ -94,22 +94,22 @@ def test_finetune_ab_runs_both_optimizers(monkeypatch):
     monkeypatch.setattr(finetune, "deps_available",
                         lambda: {"have": {}, "ready": True, "need": "", "missing": []})
     monkeypatch.setattr(finetune, "finetune", fake_single)
-    res = finetune.finetune_ab(optimizers=("hodge", "adam"), steps=3)
-    assert calls == ["hodge", "adam"]
+    res = finetune.finetune_ab(optimizers=("adamw", "adam"), steps=3)
+    assert calls == ["adamw", "adam"]
     assert len(res["ab"]) == 2
-    assert res["best"] == "hodge"                 # lower held out EVAL loss wins the verdict
-    assert res["eval_losses"] == {"hodge": 0.8, "adam": 1.2}
-    assert "hodge" in res["verdict"]              # a clear gap -> named winner, not "tie"
+    assert res["best"] == "adamw"                 # lower held out EVAL loss wins the verdict
+    assert res["eval_losses"] == {"adamw": 0.8, "adam": 1.2}
+    assert "adamw" in res["verdict"]              # a clear gap -> named winner, not "tie"
 
 
 def test_ab_reports_tie_within_noise(monkeypatch):
     def fake_single(*, optimizer, on_step=None, label=None, steps=10, **kw):
-        ev = 0.231 if optimizer == "hodge" else 0.230   # sub 1% gap = noise
+        ev = 0.231 if optimizer == "adamw" else 0.230   # sub 1% gap = noise
         return {"optimizer": optimizer, "optimizer_class": optimizer.title(),
                 "loss_final": 0.2, "eval_final": ev, "eval_start": 2.0,
                 "eval_trajectory": [2.0, ev], "trajectory": [2.0, 0.2], "adapter": None}
     monkeypatch.setattr(finetune, "deps_available",
                         lambda: {"have": {}, "ready": True, "need": "", "missing": []})
     monkeypatch.setattr(finetune, "finetune", fake_single)
-    res = finetune.finetune_ab(optimizers=("hodge", "adam"), steps=2)
+    res = finetune.finetune_ab(optimizers=("adamw", "adam"), steps=2)
     assert "tie" in res["verdict"]                 # a noise level gap is called a tie

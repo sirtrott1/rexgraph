@@ -1,19 +1,14 @@
 """WordNet answerer."""
 from __future__ import annotations
 
-import os
-
 import pytest
 
-from agent.answerers.lexical import DEFAULT_WORDNET, LexicalAnswerer, render
-
-pytestmark = pytest.mark.skipif(not os.path.exists(DEFAULT_WORDNET),
-                                reason="the WordNet lexicon is not present")
+from agent.answerers.lexical import LexicalAnswerer, render
 
 
 @pytest.fixture(scope="module")
-def ans():
-    a = LexicalAnswerer()
+def ans(lexical_sources):
+    a = LexicalAnswerer(path=str(lexical_sources["wordnet"]))
     a._lex()
     return a
 
@@ -37,6 +32,7 @@ def test_a_mentioned_term_the_lexicon_lacks_is_declined_not_substituted(ans):
 
 
 def test_a_recorded_verb_form_is_not_the_subject(ans):
+    assert "are" in ans._verb_forms
     r = ans.answer("what kinds of whale are there")
     assert r["answered"] and r["subject"] == "whale"
     assert r["relation"] == "hyponym"

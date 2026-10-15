@@ -181,8 +181,7 @@ def build_L2(B2_in):
     return L2
 
 
-# Sparse Laplacian builders (integer/exact tower -
-# Part II/X). L0 = B1 B1^T = D - A (nnz ~ 2*nE), L1_down = B1^T B1, L1_up = B2 B2^T,
+# Sparse Laplacian builders from the boundary matrices. L0 = B1 B1^T = D - A (nnz ~ 2*nE), L1_down = B1^T B1, L1_up = B2 B2^T,
 # L2 = B2^T B2: assembled as SPARSE matmuls, never densifying B1/B2 (the nV x nE
 # / nE x nE dense allocation was the crash). Return scipy CSR. The dense builders
 # above are the verified opt in fallback; on small graphs the sparse .toarray()

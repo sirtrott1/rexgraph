@@ -1,29 +1,9 @@
-"""Wiktionary: a binary index over the JSONL, with the JSONL kept only as a heap.
+"""Read Wiktionary through a binary index with addressable JSONL source entries.
 
-3.21 GB and 1,487,639 entries of JSONL is not a format to query. Parsing it per lookup
-costs a full scan, and re encoding the whole thing into records would duplicate 3 GB of
-prose that nothing reads until someone asks for one entry.
-
-So the split is the one the owner's storage already makes everywhere else: STRUCTURE goes
-binary and RAW stays addressable.
-
-    binary index (safetensors)   the packed string tables, the codes, and the CSR of
-                                 which word links to which. This is what every reading
-                                 touches, and it is tensors, not documents.
-    the JSONL                    an addressable heap. Each entry carries its byte offset
-                                 and length, so `raw_entry` is one seek and one readline.
-                                 No JSON is parsed unless a caller asks for a specific
-                                 entry's raw form.
-
-That is the same trichotomy as `rcdb_index`: existence is the sparsity pattern of the
-linkage CSR, orientation is the head word at position 0 of its own span, and share is
-`1/(k-1)` from the span width. Nothing stores a weight and nothing stores a sign.
-
-The linkage kinds are the relational content. `synonyms` and the rest name OTHER words, so
-`[word] + [linked words]` is a group in exactly the sense a WordNet synset is one, and it
-feeds `rexgraph.construct.from_groups` unchanged. Glosses and etymology are prose and stay
-in the heap; they feed `construct.from_text` if a caller wants them as a complex, which is
-a different construction and therefore a different call.
+The index stores packed string tables, codes and incidence arrays in safetensors.
+Raw entries remain in JSONL and are read by byte offset when requested, so a
+lookup does not scan the source or duplicate its full text in the index.
+Use the index construction functions in this module to prepare a raw dump.
 """
 from __future__ import annotations
 

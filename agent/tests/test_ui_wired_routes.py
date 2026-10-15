@@ -100,7 +100,7 @@ def test_builder_run_reports_a_failing_step_instead_of_500ing(client):
 
 def test_builder_run_completes_a_config_that_needs_no_documents(client):
     """langgraph_init builds its state from the config alone, so it is the case that
-    proves the executor runs rather than only reporting failures."""
+    checks that the executor runs rather than only reporting failures."""
     cfg = '{"name":"t","steps":[{"type":"langgraph_init"}]}'
     r = client.post("/api/v1/builder/run", data={"config": cfg})
     assert r.status_code == 200, r.text

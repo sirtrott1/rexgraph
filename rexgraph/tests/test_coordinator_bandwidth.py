@@ -1,13 +1,8 @@
-"""The contention objective counts every lane's bandwidth draw.
+"""Check contention costs across all compute lanes sharing a bus.
 
-`min(proc, igpu)` said the right thing for two lanes, contention being what is CO DRAWN
-since a lane drawing alone owns the bus, but it excluded the third, so anything on the
-thread lane drew for free. Free being cheap, the actuator PREFERRED that lane, which is
-exactly where a blocking call into a local model lands, and a local model is the
-heaviest draw on the box (~87% of memory bandwidth, measured).
-
-The fix is `total - max`, which for two terms IS the minimum, so it is a generalisation
-and not a replacement: with no thread draw it returns the old value bit for bit.
+For each bus the shared draw is total demand minus its largest demand.
+The tests verify that thread, process and GPU lanes contribute according
+to their declared resource topology.
 """
 import numpy as np
 import pytest

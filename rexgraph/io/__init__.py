@@ -431,7 +431,7 @@ def _detect_format(path, override=None):
         if os.path.exists(os.path.join(path, "MANIFEST.json")):
             return "rcbd"
         return "zarr"
-    if os.path.isfile(path):
+    if not ext and os.path.isfile(path):
         return "hdf5"
     if ext:
         raise ValueError(
@@ -442,9 +442,8 @@ def _detect_format(path, override=None):
 
 #### builtin formats
 def _save_json(path, obj, **kwargs):
-    import json as _json
-    with open(path, "w", encoding="utf-8") as f:
-        _json.dump(obj.to_json(), f)
+    from .json_loader import save_rexgraph_json
+    return save_rexgraph_json(path, obj, **kwargs)
 
 
 def _load_safetensors(path, **kwargs):

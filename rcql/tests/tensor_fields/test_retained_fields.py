@@ -163,7 +163,7 @@ def test_multiple_attachments_from_native_state_and_stale_refusal():
     with pytest.raises(ValueError):f.observe().evaluate()
 
 
-def test_paper_injection_sector_and_moment_values():
+def test_injection_sector_and_moment_values():
     old,new=square(False),square(True)
     u=space('request',1);p=mapping(u,old.complex.spaces[1],[[1],[1],[0],[0]])
     q=mapping(u,new.complex.spaces[1],[[0],[0],[-1],[-1]])

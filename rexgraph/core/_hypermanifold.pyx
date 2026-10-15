@@ -4,13 +4,12 @@
 rexgraph.core._hypermanifold: Filtered manifold sequence and dimensional analysis.
 
 The hypermanifold is the filtered family M1 < M2 < ... < Mk where
-each inclusion adds new cells, new Dirac eigenmodes, one Bianchi
-identity, and curl content.
+each truncation reports its cell counts, total dimension and Betti numbers.
+The n_bianchi field counts adjacent boundary pairs available for closure checks.
 
 The harmonic shadow at dimension d is ker(L_d(d)) \\ ker(L_d(d+1)):
 the cycles that become boundaries when (d+1)-cells are added. Its
-dimension equals rank(B_{d+1}), predicting the number of (d+1)-cells
-needed to kill all d-cycles.
+dimension is the decrease in harmonic dimension between those truncations.
 
 """
 
@@ -39,7 +38,7 @@ def build_manifold_sequence(np.ndarray[f64, ndim=1] evals_L0,
     For each truncation dimension d, compute:
     - N_d: total degrees of freedom (sum of cell counts up to dim d)
     - betti_d: Betti numbers truncated at dimension d
-    - n_bianchi: number of Bianchi identities (d - 1)
+    - n_bianchi: number of adjacent boundary pairs (d - 1)
 
     Parameters
 

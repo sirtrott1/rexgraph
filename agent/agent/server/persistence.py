@@ -115,16 +115,17 @@ def update_settings(workspace: str, changes: dict) -> dict:
 
 def link_doc_session(workspace: str, doc_id: str, session_id: str) -> None:
     """Record ``doc_id -> session_id`` for a workspace."""
+    from rexgraph.io.publication import publication_lock, staged_publication
     if not doc_id or not session_id:
         return
     p = _links_path(workspace)
-    try:
-        data = json.loads(p.read_text()) if p.exists() else {}
-    except Exception:
-        data = {}
-    data[doc_id] = session_id
-    with contextlib.suppress(Exception):
-        p.write_text(json.dumps(data, indent=2))
+    with publication_lock(p.parent):
+        data = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+        if not isinstance(data, dict):
+            raise ValueError("Document session map must be a JSON object")
+        data[doc_id] = session_id
+        with staged_publication(p) as staged:
+            staged.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def get_doc_session(workspace: str, doc_id: str):

@@ -82,7 +82,7 @@ def test_the_composite_share_is_preserved_exactly():
 
 
 def test_support_components_and_h0_are_different_readings():
-    """The number art specified: one support component, H0 of 3, both valid."""
+    """The generated branching fixture has one support component and H0 dimension 3."""
     out = analyze_rows(_shared(4), link_on="k", id_col="id")
 
     assert out["n_support_components"] == 1

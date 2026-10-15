@@ -373,7 +373,7 @@ def cardinality(rc: ReasoningComplex, *, limit: int = 100) -> dict:
 
     A cardinality restriction is a statement about how many times a class stands in a
     named relation. The complex holds that directly as the typed degree of the class's
-    star, so checking one is a count rather than a proof obligation.
+    star, so checking one is a count of connected constraints.
     """
     rex = rc.rex
     S = np.asarray(rex.sources)

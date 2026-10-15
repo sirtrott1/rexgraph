@@ -45,36 +45,29 @@ def _assert_unified_budget(hw):
 
 
 def test_a_unified_carveout_does_not_become_the_model_budget():
-    """The bug filling vram_gb would have introduced: `if vram: budget = vram` would have
-    called this 121 GiB machine a 4 GiB one, a 30x understatement, and every model fit
-    decision downstream would have refused everything.
+    """A unified GPU uses the system memory budget when a separate VRAM carveout exists.
 
-    Unified does NOT imply a carveout, which is the trap: an APU reports one, Apple
-    silicon reports no vram at all because there is no separate pool to carve from.
-    So the RAM rule is read first, on every unified host, and the carveout comparison
-    only where a carveout exists. Asserting the second unconditionally multiplied
-    None on the macOS runners.
+    The comparison with VRAM applies only to hosts that report a carveout; unified
+    hosts without one still use the system memory rule.
     """
     hw = detect_hardware()
     if not (hw.get("gpu") or {}).get("unified"):
-        pytest.skip("not a unified-memory host")
+        pytest.skip("a unified memory device was not detected in this process")
     _assert_unified_budget(hw)
 
 
 def test_a_unified_host_reporting_no_carveout_still_budgets_from_ram(monkeypatch, no_hip):
-    """The Apple shape, driven from a fixture so it is checked on every platform.
-
-    This is the one that took the macOS runners down, and it was invisible here
-    because it needs hardware none of us has to hand. Standing the host up as Apple
-    silicon reproduces it in one call, so the next reader who treats `unified` as
-    implying a vram figure fails on Linux rather than in CI.
-    """
+    """Simulate Apple silicon without reading the host's Linux devices or Vulkan runtime."""
     import platform
     import shutil
+    from agent import local_runtime as R
+    from rexgraph import hardware
 
     monkeypatch.setattr(platform, "system", lambda: "Darwin")
     monkeypatch.setattr(platform, "machine", lambda: "arm64")
     monkeypatch.setattr(shutil, "which", lambda *a, **k: None)
+    monkeypatch.setattr(hardware, "_drm_cards", lambda driver_match: [])
+    monkeypatch.setattr(R, "probe_vulkan", lambda: {"available": False, "devices": []})
 
     hw = detect_hardware()
     _assert_unified_budget(hw)          # the same rules, on the no carveout shape
@@ -105,7 +98,7 @@ def test_vulkan_device_is_detected_without_vulkaninfo_and_preserves_unified_budg
     monkeypatch.setattr(R, "detect_gpus", lambda: [igpu])
     monkeypatch.setattr(R, "probe_vulkan", lambda: {"available": True, "devices": [{
         "hardware_gpu": True, "compute": True, "integrated": True,
-        "vendor_id": 0x1002, "name": "Radeon 8060S"}]})
+        "vendor_id": 0x1002, "name": "Synthetic AMD GPU"}]})
     monkeypatch.setattr(R, "_ram_gb", lambda: 120.)
     hw = R.detect_hardware()
     assert hw["recommended_backend"] == "vulkan" and hw["gpu"] is igpu
@@ -126,9 +119,9 @@ def test_vulkan_enumeration_can_supply_gpu_identity_without_sysfs(monkeypatch, n
     monkeypatch.setattr(R, "detect_gpus", lambda: [])
     monkeypatch.setattr(R, "probe_vulkan", lambda: {"available": True, "devices": [{
         "hardware_gpu": True, "compute": True, "integrated": True,
-        "vendor_id": 0x1002, "name": "Radeon 8060S"}]})
+        "vendor_id": 0x1002, "name": "Synthetic AMD GPU"}]})
     hw = R.detect_hardware()
-    assert hw["gpu"]["vendor"] == "amd" and hw["gpu"]["name"] == "Radeon 8060S"
+    assert hw["gpu"]["vendor"] == "amd" and hw["gpu"]["name"] == "Synthetic AMD GPU"
     assert hw["gpu"]["unified"] is None
 
 

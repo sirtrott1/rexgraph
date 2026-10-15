@@ -86,7 +86,7 @@ def test_invalid_maps_fail_before_any_adapter(explain, defect, monkeypatch):
         if defect == "target-chain":
             d = CoordinateComplex(c.spaces, (((0, 0, 1),), ((0, 0, 1),), ()))
         else:
-            # A malformed stored B3 is live source data, not a forged proof flag.
+            # A malformed stored B3 is live source data, not a forged validation flag.
             from rexgraph.native_sparse import as_native
             upper = as_native(rex._graded_duals[0])
             data = upper.data.copy()
@@ -132,7 +132,7 @@ def test_descriptor_checks_are_not_length_only(defect, monkeypatch):
         run(rex, call("CHAIN_MAP", param("p")), explain=True, p=typ)
 
 
-def test_abstract_or_computed_declaration_defers_proof_never_claims_it_checked():
+def test_abstract_or_computed_declaration_defers_validation_never_claims_it_checked():
     rex, p = make()
     typ = _carrier_literal(bind("r", rex, SourcePolicy.allow("*")), p)
     result = run(rex, call("CHAIN_MAP", param("p")), explain=True, p=typ)
@@ -146,7 +146,7 @@ def test_abstract_or_computed_declaration_defers_proof_never_claims_it_checked()
     assert result.execution[-1]["methods"][0]["chain_preserving"] is True
 
 
-def test_repeated_query_expression_reuses_one_execution_not_a_global_proof_cache():
+def test_repeated_query_expression_reuses_one_execution_not_a_global_validation_cache():
     rex, p = make()
     expr = call("CHAIN_MAP", param("p"))
     result = run(rex, expr, expr, p=p)
@@ -156,10 +156,10 @@ def test_repeated_query_expression_reuses_one_execution_not_a_global_proof_cache
     assert again.values[0] is not result.values[0]
 
 
-def test_read_policy_checked_before_any_proof_or_adapter(monkeypatch):
+def test_read_policy_checked_before_any_validation_or_adapter(monkeypatch):
     import rcql.executor
     rex, p = make()
-    monkeypatch.setattr(GradedMap, "verify", lambda *a: pytest.fail("proof ran without read"))
+    monkeypatch.setattr(GradedMap, "verify", lambda *a: pytest.fail("validation ran without read"))
     monkeypatch.setattr(rcql.executor, "get_operator", lambda *a: pytest.fail("adapter ran"))
     with pytest.raises(PermissionError):
         Executor(sources={"r": BoundSource(rex, SourcePolicy.allow())}, params={"p": p}).execute(

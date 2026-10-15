@@ -287,7 +287,7 @@ class TestFrameProjector:
         with pytest.raises(ValueError, match="image frame"):
             frame_projector(redundant)
 
-    def test_the_paper_worked_projector(self):
+    def test_fixed_exact_projector(self):
         """Example "Noncommuting subspace selections": M = diag(2,3), line (1,1)."""
         got = frame_project(np.array([1.0, 1.0]), np.array([1.0, 0.0]),
                             np.array([2.0, 3.0]))
@@ -295,7 +295,7 @@ class TestFrameProjector:
 
 
 class TestLeastQuadrance:
-    def test_the_paper_square_fixture(self):
+    def test_square_fixture(self):
         """Example "Forest support and Hodge purity differ"."""
         B1 = np.array([[-1.0, 0, 0, 1], [1, -1, 0, 0], [0, 1, -1, 0], [0, 0, 1, -1]])
         p = np.array([1.0, 1, 0, 0])

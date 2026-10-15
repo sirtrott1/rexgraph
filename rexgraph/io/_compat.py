@@ -421,8 +421,9 @@ def g_store_complex(
         g_create_array(sub, "imag", data=arr.imag,
                        compressor=compressor, chunks=chunks)
     else:
-        g_create_array(group, name, data=arr,
-                       compressor=compressor, chunks=chunks)
+        stored = g_create_array(group, name, data=arr,
+                                compressor=compressor, chunks=chunks)
+        stored.attrs["rex_numpy_dtype"] = str(arr.dtype)
 
 
 def g_load_complex(group, name: str) -> np.ndarray:
@@ -436,8 +437,12 @@ def g_load_complex(group, name: str) -> np.ndarray:
         real = np.asarray(obj["real"])
         imag = np.asarray(obj["imag"])
         dtype = np.dtype(as_str(obj.attrs.get("dtype", "complex128")))
-        return (real + 1j * imag).astype(dtype)
-    return np.asarray(obj)
+        result = np.empty(real.shape, dtype=dtype)
+        result.real = real
+        result.imag = imag
+        return result
+    dtype = obj.attrs.get("rex_numpy_dtype")
+    return np.asarray(obj, dtype=None if dtype is None else np.dtype(as_str(dtype)))
 
 
 # Zarr sparse CSR helpers
@@ -752,9 +757,9 @@ def h5_store_array(
     """
     arr = np.asarray(arr)
     kw: dict = {}
-    if compression:
+    if compression and arr.ndim:
         kw["compression"] = compression
-    if chunks:
+    if chunks and arr.ndim:
         kw["chunks"] = True
 
     if np.iscomplexobj(arr):
@@ -772,11 +777,14 @@ def h5_load_array(group, name: str) -> np.ndarray:
     """Load an ndarray from an HDF5 dataset or complex subgroup."""
     obj = group[name]
     if isinstance(obj, h5py.Group) and obj.attrs.get("is_complex", False):
-        real = obj["real"][:]
-        imag = obj["imag"][:]
+        real = np.asarray(obj["real"][()])
+        imag = np.asarray(obj["imag"][()])
         dtype = np.dtype(as_str(obj.attrs.get("dtype", "complex128")))
-        return (real + 1j * imag).astype(dtype)
-    return obj[:]
+        result = np.empty(real.shape, dtype=dtype)
+        result.real = real
+        result.imag = imag
+        return result
+    return np.asarray(obj[()], dtype=obj.dtype)
 
 
 # HDF5 complex array helpers

@@ -1,832 +1,153 @@
 # RCQL
 
-RCQL is the typed query and mutation layer for relational complexes.
+RCQL is a typed query language for relational complexes and registered data
+sources. It evaluates construction, analysis, selection and operator expressions
+through RexGraph, and provides explicit mutations for RCDB records. Queries
+retain source identities, arithmetic declarations and execution provenance.
 
-## Portable exact results
+## Installation
 
-`Result.to_bytes()` and `Result.from_bytes(payload)` preserve exact values,
-arithmetic declarations, aliases, plans, rewrites, provenance and execution
-records. Graph results carry native sealed states. Chains and cochains retain
-their variance and share the reconstructed source graph when they use the same
-basis. Decoding validates integrity and reconstructs values without running a
-query. The default artifact limit is 64 MiB; pass `max_bytes` to either method
-to choose another limit.
+From the repository root, `make install` installs RCQL with the application
+packages. Use `make python` to open the installed interpreter. If Core is
+already installed, run `python -m pip install ./rcql` from the repository root.
+RCQL requires Core and NumPy; RCDB sources are supplied by the application.
+See the [installation guide](../README.md#installation).
 
-The portable inventory includes the core closed scalar/tensor values, nested
-lists/maps, static and temporal graphs, declared Relations, chains and cochains,
-partitions with lineage, retained tensor fields and channels, sections, models,
-spans, and finite program declarations and transformations. Shared graph and
-FieldSource bindings retain their reference identity; detached sources remain
-detached. No program executes during decoding. A live operator or another value
-without a portable codec raises `TypeError`; request its explicit reading or
-use its dedicated artifact contract. System's JSON response is a bounded
-preview. Large integers use decimal text records, and absence and approximation
-have distinct tags. Parquet export preserves exact coefficient columns and
-partition lineage.
+## Running a query
 
-New query cache entries store the same `Result.to_bytes()` payload used for
-downloads. Cache identity includes the implementation and declared input
-identities; reuse checks dependency bindings before returning a result. Older
-cache manifests retain a read compatibility path. Portable result framing and
-graph identity do not certify a live operator that has no portable codec.
-
-## Certified name transformations
-
-`ProgramTransformation` retains an original name declaration, a candidate,
-explicit port and capture mappings, and an exact operation boundary certificate.
-The interface rules are `port` and `alias`. They reuse `NameRelation.rename`
-and `NameRelation.named`. They do not transform arbitrary finite or recursive
-program bodies.
+Register a complex under a name and refer to it in the query:
 
 ```python
-from rcql import Executor, NameRelation, parse
-from rexgraph.graph import RexGraph
+from rexgraph import RexGraph
+from rcql import run
 
-rex = RexGraph.from_cells([2, [[0, 1]]])
-operation = NameRelation.operator("SUM")
-runtime = Executor(sources={"r": rex}, params={"operation": operation})
-result = runtime.execute(parse('''
-FROM $r
-LET t = TRANSFORM_NAME($operation, "port", ["values", "items"])
-LET candidate = TRANSFORM_COMPILE(t, $operation, [[1/3, 2/7]])
-RETURN TRANSFORM_VERIFY(t, $operation), NAME_APPLY(candidate, [[1/3, 2/7]])
-'''))
+network = RexGraph.from_graph([0, 1, 2], [1, 2, 0])
+result = run(
+    "FROM $network RETURN COUNT(CELLS(1)), BETTI(1)",
+    sources={"network": network},
+)
+assert result.values == (3, 1)
 ```
 
-Construction and compilation do not run the target operation. `TRANSFORM_COMPILE`
-checks the original declaration identity and validates both interfaces under
-the current source, arguments and permissions. It returns a name declaration.
-`NAME_APPLY` is the separate execution request and checks its own current inputs.
-Compilation does not grant authority or bind the name permanently to those inputs.
+A query without `MATCH` returns one value for each `RETURN` expression.
+`MATCH` iterates a finite cell selection and returns a sequence of rows.
+The following query selects relations with more than two participants:
 
-`TRANSFORM_VERIFY` checks the substitution and exact chain map without target
-evaluation. The certificate proves declaration correspondence under the explicit
-interface rename. It retains the three operation grades, repeated argument
-occurrences and shared value realization. It does not prove arbitrary program
-equivalence, equality of trace labels or an undeclared metric interpretation.
+```python
+from rexgraph import Relations, VertexTable
 
-`TRANSFORM_RECORD` and `TRANSFORM_READ` use ordinary native records and support
-RCDB, `.rcbd` and `.safetensors`. Reload validates the declaration, certificate
-and carrier. `TRANSFORM_TOPOLOGY` returns the candidate `RelationTopology`
-record, including its exact persisted co relations. The transformation record
-retains both endpoint towers and their correspondence.
-
-Finite programs and pure recursive programs can carry transformations as values.
-Result reuse includes their declaration identity. A stored transformation carries
-no live source or permissions; native arguments and historical evidence remain
-explicit execution bindings. The original declaration remains unchanged.
-
-### Certified section readouts
-
-`TRANSFORM_SECTION(family, left, right)` constructs a guarded replacement of
-one linear readout by another. It reuses `ReadoutEquivalence` and checks both
-`(left-right)x0 = 0` and `(left-right)N = 0` on the complete family `x = x0 + Nu`.
-Matching only a particular solution is insufficient. Equality of readouts does
-not imply that either readout is determined.
-
-```text
-FROM $r
-LET t = TRANSFORM_SECTION($family, $left, $right)
-LET original = TRANSFORM_SOURCE(t)
-LET candidate = TRANSFORM_COMPILE(t, original, [$family, $left, $right])
-RETURN NAME_APPLY(candidate, [$family, $left, $right])
+relations = Relations.from_supports(
+    [[0, 1, 2], [1, 2]],
+    vertices=VertexTable(("a", "b", "c")),
+)
+shared = RexGraph.from_relations(relations)
+result = run(
+    "FROM $graph MATCH e IN CELLS(1) WHERE ARITY(e) > 2 "
+    "RETURN e.index, ARITY(e) ORDER BY e.index LIMIT 10",
+    sources={"graph": shared},
+)
+assert result.values == (((0, 3),),)
 ```
 
-The result is a `SectionImage`, retaining free directions and every field axis.
-Use `SECTION_VALUE` only when that image is determined. The two operation
-declarations call `SECTION_CERTIFIED_OBSERVE` with explicit left and right
-selections. Both check the current family, map identities, source versions,
-contributors and permissions. Compilation and application remain separate.
+`WHERE` requires a scalar boolean. `ORDER BY` requires compatible finite
+scalars and uses a stable sort. `LIMIT` and `OFFSET` take nonnegative integers.
+Selecting rows does not itself construct a subcomplex; restriction and
+structural edits are explicit operators.
 
-The persisted transformation retains a readout claim, its exact input digests
-and both operation towers. It does not embed or authorize the native family.
-`TRANSFORM_VERIFY` checks declaration structure and reports that the readout
-claim requires its live inputs. Compilation and application recompute the exact
-certificate from those inputs. Reload alone does not certify the claim.
+## Arithmetic and operator contracts
 
-The equivalence concerns readout values over that one family. It does not equate
-the two maps on the whole coordinate space, erase their provenance, equate
-`SectionImage` identities, or justify replacing an arbitrary program body.
-
-### Specialization and composition
-
-`TRANSFORM_SPECIALIZE(operation, bindings)` captures an explicit mapping of
-open input names to finite values. It reuses `NameRelation.bind`. The candidate
-agrees with the original when those inputs have exactly the declared values.
-Defaults on the remaining inputs are preserved. Native sources and fields
-remain explicit execution inputs, not serialized captures.
-
-`TRANSFORM_COMPOSE(operation, following, ports)` reuses `NameRelation.then`.
-It connects the first result to the listed input ports of the following name.
-The first result is computed once, even when several ports use it. Captures
-and intermediate names remain distinct. Unconnected input name collisions
-are refused rather than silently renamed.
-
-```text
-FROM $r
-LET t = TRANSFORM_COMPOSE($first, $following, ["input"])
-LET candidate = TRANSFORM_COMPILE(t, $first, $arguments)
-RETURN NAME_APPLY(candidate, $arguments)
-```
-
-Compilation validates the composed result type and effects without executing
-either operation. Composition constructs the declared `G(F(x))`; it does not
-assert that this result equals `F(x)`. The certificate retains both input
-declarations, the connected ports, capture and stage mappings, and the source
-and candidate operation towers. Each tower satisfies the chain law. A boundary
-map between towers with different occurrences is not inferred from their shapes.
-
-Construction uses the existing name methods. Verification checks the retained
-bindings and stage substitutions independently, without expanding shared
-expressions into a duplicated expression tree. The ordinary transformation
-record, read, topology and source operations apply to both constructions.
-
-## Certified finite program transformations
-
-`TRANSFORM_PROGRAM(program, rule, arguments)` constructs a new finite `Program`
-declaration. The original remains unchanged. Three rules are supported:
-
-* `input` takes `[old, new]` and renames an open input and its parameter uses.
-* `step` takes `[old, new]` and renames a step, its output references and exports.
-* `specialize` takes a mapping of open inputs to finite captured values.
-
-Captures retain their input type, grade and variance contracts. Exact integers
-and fractions remain exact. Captured values cannot be overridden at execution.
-Native sources and fields remain explicit bindings. These rules cannot rename
-or capture a parameter used for source selection, including a historical cutoff.
-
-```text
-FROM $r
-LET t = TRANSFORM_PROGRAM($program, "input", ["x", "value"])
-LET candidate = TRANSFORM_PROGRAM_COMPILE(t, $program, $sources, $parameters)
-RETURN candidate
-```
-
-Here `$sources` maps source names to native `Binding` objects. `$parameters`
-contains exactly the candidate's remaining open inputs. Compilation checks
-both declarations with the existing planner, including output types, effects,
-source identities, historical evidence and contributor permissions. It does
-not execute either program. `PROGRAM_RUN` is a separate request and validates
-its own current bindings.
-
-`TRANSFORM_VERIFY` checks the declaration certificate independently of the
-construction methods. It retains source selector digests, typed port mappings,
-step links, exports, capture digests and operator requirements. Specialization
-claims correspondence only at the declared captured values. It does not prove
-arbitrary program equivalence or equal trace labels.
-
-`TRANSFORM_PROGRAM_TOPOLOGY` takes the same four arguments as compilation and
-returns the candidate's bound `PlanTopology` record. This is static plan
-topology, not the realized occurrences of dynamic `MATCH`. A program containing
-`MATCH` can be transformed and run, but static topology inspection still
-refuses it. No unbound operation tower is asserted for a finite program.
-
-`TRANSFORM_RECORD`, `TRANSFORM_READ` and `TRANSFORM_SOURCE` also support these
-transformations. Schema two retains the finite endpoint declarations and their
-certificate. Programs without captures keep schema one; programs with captures
-use schema two. Both restore through the existing program owner. Finite meta
-programs can return a transformed `Program`, with its declaration retained in
-type checks, result reuse and recursive histories. Inspection or construction
-never changes the program currently running.
-
-## Exact program assembly
-
-`ProgramAssembly` declares finite local programs, their coefficient stalks,
-external inputs, links and exports. Each local input has exactly one explicit
-binding. Links refer to preceding fragment exports. Shared external inputs
-must have the same type contract. Source selectors are not renamed.
-
-`PROGRAM_ASSEMBLY(name, fragments, coefficients, inputs, links, outputs)` uses
-these tuple forms:
-
-* Fragment: `(cell, Program)`.
-* Coefficient: `(cell, input, local_coordinate)`.
-* External input: `(cell, input, public_name)`.
-* Link: `(cell, input, preceding_cell, export)`.
-* Export: `(public_name, cell, export)`.
-
-`PROGRAM_GLUE(assembly, system, observation, observed)` completes the existing
-exact section system. Its result is a `ProgramFamily`, not a chosen program.
-Restriction maps belong to the actual section incidences. Local programs are
-fixed declarations; section coordinates are exact scalar coefficient ports,
-not numeric encodings of arbitrary syntax or operation choices.
-
-`PROGRAM_FAMILY_OBSERVE(family)` retains the executable coefficient observation.
-`PROGRAM_FAMILY_COMPILE(family, sources, parameters)` requires zero variation
-on every needed coefficient. Other local coordinates may remain free.
-Incompatibility returns the existing exact section contradiction exception and
-witness. Compilation does not execute a fragment or choose a free parameter.
-
-The resulting `Program` retains linked input contracts and the source versions
-used to determine its coefficients. Those sources must be bound again at
-execution, under their contributor permission intersection and historical
-evidence context. Schema three stores these contracts and dependencies.
-Schemas one and two remain readable.
-
-`PROGRAM_ASSEMBLY_RECORD` and `PROGRAM_ASSEMBLY_READ` persist the declaration.
-`PROGRAM_FAMILY_RECORD` and `PROGRAM_FAMILY_READ` persist the section family
-with its recipe. Family restoration requires the selected source and explicit
-contributor bindings. RCDB, `.rcbd` and `.safetensors` use their existing state
-codecs. `PROGRAM_RUN` remains the separate execution request.
-
-## Program version comparison
-
-`PROGRAM_COMPARE(old, new, matches)` compares two topology records of the same
-kind: bound `PlanTopology` records or exact `RelationTopology` records.
-`matches` contains one sequence of `(old_key, new_key)` pairs per retained
-grade. Each sequence is an explicit partial bijection. Equal labels or array
-shapes do not create implicit matches. Unmatched coordinates remain additions
-or removals.
-
-`PROGRAM_EVOLUTION_INFO` reports operation fields and endpoint declaration
-changes, including retained captures, ports, effects, sources and outputs.
-Grade two changes remain distinct where the endpoint topology retains them.
-`PROGRAM_BOUNDARY_CHANGE(evolution, grade)` returns the Core factored action
-`B_new J_grade - J_lower B_old`. It introduces no metric or eigensolve.
-
-Declaration change and boundary change are separate readings. Different
-captured constants can produce identical operation boundaries. A zero defect
-does not prove program equivalence, equal results or causality.
-`PROGRAM_EVOLUTION_RECORD` and `PROGRAM_EVOLUTION_READ` retain both endpoint
-towers and all supplied occurrence matches, and validate them on reload.
-
-## Install and run
-
-Install from the repository root after configuring the compiler and BLAS as
-described in the [library guide](../README.md).
-
-```sh
-python -m pip install .
-python -m pip install ./rcql
-```
-
-The optional RCDB integration uses a supplied store. Install `./rcdb` when
-using it. RCQL does not import Agent or System.
+Integer and rational scalar expressions retain exact values:
 
 ```python
 from fractions import Fraction
-from rexgraph.graph import RexGraph
-from rcql import Executor, parse
 
-graph = RexGraph.from_hypergraph(
-    [0, 3, 5], [0, 1, 2, 1, 2],
-    w_E=[Fraction(2, 3), Fraction(5, 7)],
-)
-runtime = Executor(sources={"graph": graph})
-result = runtime.execute(parse(
-    "FROM $graph MATCH e IN CELLS(1) WHERE ARITY(e) > 2 "
-    "RETURN e.index, ARITY(e) ORDER BY e.index LIMIT 10"
-))
-assert result.values == (((0, 3),),)
-assert runtime.execute(parse(
-    "FROM $graph RETURN COUNT(CELLS(1)), SUM([1/3, 2/7]), MEAN([1, 2])"
-)).values == (2, Fraction(13, 21), Fraction(3, 2))
+result = run("FROM $network RETURN SUM([1/3, 2/7]), MEAN([1, 2])",
+             sources={"network": network}, exactness="exact")
+assert result.values == (Fraction(13, 21), Fraction(3, 2))
 ```
 
-Queries without MATCH return one value per RETURN expression. MATCH returns
-one sequence of result rows. `EXPLAIN` checks the same types and permissions
-without executing expression adapters. A source selector may still read the
-selected stored state to establish its contract.
-
-COUNT reads the length of a finite sequence or cell selection. SUM and MEAN
-currently accept explicit real scalar sequences, not implicit tensor reductions.
-Integer and rational coefficients remain exact. Numerical inputs use compensated
-summation. An empty sum is zero; an empty mean is `NONE`.
-
-WHERE requires a scalar boolean. ORDER BY requires compatible finite scalars
-in each sort column. Sorting is stable; `NONE` comes first in ascending order
-and last in descending order. LIMIT and OFFSET require nonnegative integers.
-Selection does not construct or close a subcomplex.
-
-
-Native accession responses repair RCDB
-ratio overflow and remove SciPy from the default scalar reading.
-Corpus fields now expose that reading through
-visible store snapshots, with signature projection before scoring.
-
-Conversation fields capture a bound Core TurnField
-as TemporalRex and preview candidate text without appending it. Temporal
-records retain term labels and primary turn identities through RCDB.
-
-Chain symmetries certify explicit rational Euclidean
-generators and construct ordered products through Core sparse maps.
-
-Training partitions select declared cells
-through Core exact closure, with source state checks and explicit authority.
-
-Tensor manifests expose the existing bounded
-Core metadata reader; tensor name search includes the complete header.
-
-Resolvent group words retain ordered products
-and inverses as native rational actions, without forming an operator matrix.
-
-Triangular void readings enumerate missing faces
-in an explicit pairwise region and compute exact independent fillings on demand.
-
-Declared relation validation checks proposed
-higher boundaries for exact closure and storage compatibility without attachment.
-
-Lineage alignment aligns scalar C1 values
-using native timeline identities and distinguishes measured zeros from absence.
-
-Relative quotients retain exact branching
-shares across the full stored tower, with a certified projection and lazy
-relative homology. The result is a coordinate complex, not a renormalized Rex.
-
-Canonical state replay documents APPLY_DELTA
-and REPLICATE. Both use Core canonical packages and return owned state;
-persistent publication remains an explicit RCDB commit.
-
-The history experiment exercises native
-branching relations, witnesses, temporal identities and RCDB version reopen
-on Git commits. It also documents ACCESSION_DELTA and the difference between
-an accession correspondence defect and a C1 temporal signal.
-
-
-Rational operator actions describe Cayley
-transforms, certified partial complex structures and rational rotations.
-They use Core factored actions with explicit rational normalization limits.
-
-Native participation and text overlap operate
-directly on the primary tensor. `PARTICIPATION_WALK()` needs no execution mode flag.
-Its action supports exact Q; `PAGERANK_ITERATION` reports a numerical fixed point
-error estimate and `PAGERANK_SOLVE` solves the same fixed point over Q.
-`TEXT_OVERLAP_VIEW()` applies overlap on the original C1 relation axis without
-constructing a sentence graph. Endpoint comparisons live in the explicit Core
-oracle module, outside native RCQL execution. These are imported algorithms; see
-[Imported algorithms and their relational replacements](#imported-algorithms-and-their-relational-replacements).
-
-Boundary differences and field correspondence defects
-describe DIFF and the three FIELD_DELTA readings. These use Core exact sparse
-operations with explicit union coordinates and correspondence contracts.
-
-Primary document fields describe query mass,
-coverage, stored section responses and structural closure. These use explicit
-source coordinates and Core rational kernels, without a text similarity graph.
-The critical family requires explicit weights
-and channels and reports its numerical arithmetic. The
-exact certificates cover adjugate actions
-and supplied chain homotopy witnesses, with costs and proof scope stated.
-The primary coordinates expose exact
-column expansion, primary lift and full graded hyperslice selections.
-
-Human query text and programmatic callers lower to the same typed AST. System and Agent can construct that AST directly without generating executable strings.
-
-Text accepts exact rational literals (`-17/20`), finite decimal/scientific
-notation, booleans, `NONE` and Unicode strings with JSON escaping. Fractions
-remain exact in results and plan metadata; decimals remain approximate. See
-literal contracts and verification.
-
-Ordered `LET name = expression` clauses capture reusable native values between
-FROM and RETURN. Builders use `let(name, expression)`, `ref(name)` and
-`query(..., bindings=(...))`.
-
-Calls accept declared named arguments, and expressions support nested lists,
-checked record members and return aliases. A source alias qualifies calls on the
-one bound source. See composition contracts:
-
-```text
-FROM $graph AS r
-LET selected = r.CELLS(indices=[0, 2], grade=1)
-RETURN INDICATOR(selected) AS signal, r.DESCRIBE().nE AS relations
-```
-
-## Native navigation and structural edits
-
-`MATCH` iterates native `CELLS`, `FILES`/`SEARCH`, or `RCDB_LIST`/`RCDB_SEARCH`
-values. It does not expand branching relations or close a selected subcomplex.
-Scalar comparisons keep exact integers and fractions; `AND`, `OR`, and `NOT`
-require booleans (operands are evaluated eagerly). Sorting is stable and explicit;
-without `ORDER BY`, `LIMIT` stops iteration early. `Result.values[0]` is a tuple
-of rows, each containing the returned expressions in order.
-
-```text
-FROM $graph MATCH e IN CELLS(1)
-WHERE ARITY(e) >= 3
-RETURN e, e.index, ARITY(e) ORDER BY e.index LIMIT 20
-
-FROM $db LET old = RCDB_GET("sample")
-MUTATE "sample" SET state=old, expected_version=1
-REMOVE [2] ADD [[0,1,2,3]] COMMIT
-```
-
-`ADD` takes full C1 boundary supports. For weighted additions, a parameter can
-carry `{"columns": [[0,1,2]], "weights": [Fraction(1,3)]}`, with optional
-`signs` and `relation_ids`. `REMOVE` takes current C1 basis indices; each clause
-addresses the preceding clause's result. Removed cofaces are dropped upward,
-and metadata and section memberships are remapped. Inputs are independently
-copied through the core codec; failed edits do not mutate the source value.
-`SET state` remains explicit. These clauses are not generic arbitrary grade
-construction, attribute assignment, or pairwise pattern syntax.
-
-Standalone RCBD, legacy REX, safetensors, HDF5 and Zarr files are readable and
-writable through a catalog. Static and temporal source aliases can return their
-whole native value; `STATE_HASH()` covers the whole declared history as well.
-
-```text
-FROM FILE("files","root0/sample.rcbd") AS document RETURN document
-FROM CATALOG("files") MUTATE "root0/sample.rcbd"
-SET state=$candidate, expected_hash=$previous_file_hash COMMIT
-```
-
-The host passes returned values between statements. A file commit checks the
-staged roundtrip's state identity and, when supplied, the physical `expected_hash`
-under the publication lock. It retains the old state at the receipt's `backup`
-path in a private `.rexgraph-write-*` directory (excluded from catalog discovery).
-Regular file replacement is atomic; directory replacement is locked with rollback,
-not crash atomic. File commits are not RCDB versions and reject RCDB validity/version
-fields. RCDB remains the versioned, signed lineage workflow.
-
-## Mathematical contracts
-
-The native math modules are included in built wheels.
-
-
-The native core's coupled field preserves
-the defined coupling while supporting indefinite heat/wave evolution, arbitrary
-initial velocity and sparse full SPD metrics. This is a numerical runtime
-prerequisite, not a new field evolution grammar form or an exact exponential.
-
-`CHARACTER(True)` returns exact rational diagonal character for raw G and for
-normalized G with nonnegative relation weights. It does not require an eigenbasis
-or a full channel matrix. `RANK` and `NULLITY` use exact elimination/structural
-identities and refuse unsupported numeric matrices instead of silently estimating.
-
-Exact `QUADRANCE` and `SPREAD` require integer or rational coefficient carriers;
-both SPREAD operands are checked. Numerical complex inputs use a Hermitian inner
-product. A query is typed before any algebraic rewrite, including under `EXPLAIN`.
-
-## Exact sheaf sections
-
-Exact sheaf comparison supports heterogeneous stalk dimensions and rectangular
-incidence maps. `SECTION_CHECK($section)` checks compatibility without constructing
-the all pair meeting graph; `GLUE($section)` retains detailed pair level residuals.
-Neither computes sheaf cohomology nor performs the planned chain map complex merge.
-
-```text
-FROM PHRASE($section)
-LET check = SECTION_CHECK(section=$section)
-RETURN check.compatible, check.comparison_count, GLUE($section).ratio
-```
-
-## Operator inventory
-
-The artifact operators expose Core digest,
-lineage, transport and provider operations with explicit in memory contracts.
-
-The partition operators expose stored face
-containment and explicit downward closed restriction. They preserve primary
-arity, identities and exact higher storage without requiring SciPy.
-
-`PARTITION` and `RESTRICT` default to `carried_state="structural"`, which omits
-application state. `PARTITION(CELL(3,0), carried_state="all")` carries metadata,
-signals, retained attachments and sectionings through Core component transport.
-`TRAINING_PARTITION` accepts the same option in its explicit policy mapping;
-the normalized policy digest binds the choice. All modes retain exact declared
-shares and source metric presence, and all selected upper cells retain their full
-downward closure.
-
-Python `Selection` and `GradedCellPattern` parameters select several grades in
-one `PARTITION`, `RESTRICT` or `QUOTIENT`. They must be bound to the current
-source. `PARTITION(...).lineage` exposes declared read only state, sizes, requests,
-maps, parent digests and content identity. Method calls are not query members.
-
-`FROM $graph LET a=PARTITION(CELL(1,0)) LET b=PARTITION(CELL(1,1))
-RETURN GLUE_PARTITIONS([a,b])` reconstructs their verified union in `$graph`'s
-original basis. `carried_state="all"` requires all parts to carry application
-state; modified or foreign parts are refused. This operation delegates to Core
-`glue`; the existing `GLUE` operator retains its section contract. Portable result
-artifacts and caches retain selections, shared source references and complete
-lineage. A lineage content hash alone does not prove a derivation or authorize it.
-`HASH(p.lineage,"lineage")`, `LINEAGE(p.lineage)` and `MANIFEST(p.lineage)` use
-the complete lineage identity. For compatibility, the same operators on `p`
-retain the older `PartitionState` summary and its distinct digest domain.
-
-`FROM $graph RETURN SHOW_OPERATORS()` returns the current global inventory;
-`SHOW_OPERATORS(25, 0)` paginates it. Python callers can use
-`rcql.operator_inventory(limit=25, offset=0)` without loading the numerical stack.
-Rows distinguish current expression contracts, FROM only forms and explicit
-refusals.
-
-Hodge, Green, winding and moment operators execute without SciPy imports.
-The [dependency profiles](../DEPENDENCIES.md) make SciPy optional for Core and
-RCDB. The homology readings add exact simple
-and multiplicity dimensions at any carried grade, without harmonic bases.
-
-## Imported algorithms and their relational replacements
-
-An imported algorithm is named for what it implements. A relational method that
-replaces one is named for what it computes, and its entry states the replacement.
-
-| Operator or function | Implements | Relational replacement |
-| :--- | :--- | :--- |
-| `PARTICIPATION_WALK()` | The relation mediated walk `U De^-1 U^T Dv^-1` of Zhou, Huang and Schoelkopf through `U = abs(B1) W`, reading relation weights as intensities | `RESOLVENT_RANK` reads the same complex through its boundary and metrics |
-| `PAGERANK_ITERATION(view)` | The PageRank fixed point of Page and Brin by power iteration on a participation walk | `RESOLVENT_RANK` |
-| `PAGERANK_SOLVE(view)` | The same fixed point solved over Q | `RESOLVENT_RANK` |
-| `TEXT_OVERLAP_VIEW()` | The raw overlap action `X^T X - diag(q)` on C1 relations | Not a TextRank; see below |
-| `rexgraph.core._standard` | PageRank power iteration on the adjacency walk, betweenness by BFS dependency accumulation, local clustering coefficient, Louvain communities, Dijkstra shortest paths | None yet, except PageRank |
-
-`MARKOV_VIEW`, `PAGERANK` and `PAGERANK_EXACT` were the former names; a query
-that uses one is refused with the name that replaced it. In Python the former
-names remain aliases: `rexgraph.markov.MarkovView` and `pagerank`,
-`rexgraph.ranking_response.exact_pagerank` and `pagerank_delta`, and
-`rexgraph.core._standard.pagerank`.
-
-### PageRank is replaced by RESOLVENT_RANK
-
-```text
-FROM $graph RETURN RESOLVENT_RANK(0, INDICATOR(CELL(0, 0)), 17/20, "walk")
-FROM $graph RETURN RESOLVENT_RANK(1, damping=1/2)
-FROM $graph RETURN RESOLVENT_RANK(1, calculus=$declared_calculus)
-```
-
-`RESOLVENT_RANK(grade, seed=None, damping=17/20, metric="declared", calculus=None,
-metrics=None)` returns the exact Chain `(I + lam L_k)^-1 seed` with
-`lam = damping / (1 - damping)`. Personalized PageRank solves
-`(I - damping T) pi = (1 - damping) v`, which is this resolvent with `L = I - T`.
-For loop free pair relations the walk metrics `M_0 = D^-1` and `M_1 = W^-1`, with
-`D = diag(B_1 W B_1^T)`, make the grade zero Hodge operator equal to `I - A D^-1`,
-so `RESOLVENT_RANK(0, seed, damping, "walk")` is exactly personalized PageRank on
-the adjacency walk. The seed is nonnegative, normalized to unit mass and uniform
-when omitted; damping is an exact rational in `[0, 1)`.
-
-What changes beyond that case:
-
-* At grade one and above it ranks relations and higher cells, and it reads faces
-  through `B_(k+1)`. PageRank on the vertices cannot: a face only change leaves the
-  walk unchanged.
-* A hole is never damped, since the harmonic part of the seed passes the resolvent
-  unchanged. A branching relation keeps the differences between its tails as
-  conserved directions. Where such directions exist the response conserves mass
-  and is signed rather than a probability.
-* Weights have units. The walk metric reads the declared grade one metric as
-  resistance, conductance `W = M_1^-1`; the participation walk reads the same
-  weights as intensities. Scaling every relation weight leaves `PAGERANK_SOLVE`
-  unchanged and changes `RESOLVENT_RANK`.
-
-Metric policies: `"declared"` uses the source's declared metrics (a RexGraph declares
-its edge metric and the identity elsewhere); `"walk"` derives the grade zero metric as
-above; `"degree"` derives every grade below the top the same way, from the top down;
-`"completed"` replaces the ranked grade's metric with the completed field metric
-`M_k (L_k + Pi^h)` of the complete field coordinates. A cell with no coface keeps its
-declared metric under `"walk"` and `"degree"`. `metrics=[METRIC(k, $field), ...]`
-replaces the policy's metric at those grades, so a metric can be read from a field,
-and `calculus=$c` takes every grade's metric from a bound `NativeFieldCalculus` of
-the same source.
-
-### TextRank
-
-No operator implements TextRank of Mihalcea and Tarau. `TEXT_OVERLAP_VIEW()` is the
-raw overlap action; the published TextRank weight adds a logarithmic length factor and
-is a different operator, which is not provided. In the document complex sentences are
-C1 relations, so their relational readings are `DOCUMENT_FIELD` for seed mass and
-coverage and `RESOLVENT_RANK` at grade one.
-
-### Effective modes and the harmonic log
-
-```text
-FROM $graph RETURN EFFECTIVE_MODES(1), EFFECTIVE_MODES(1, "completed", "energy"), HARMONIC_LOG(1)
-FROM $graph RETURN EFFECTIVE_MODES(1, calculus=$declared_calculus)
-```
-
-`EFFECTIVE_MODES(grade, sector="completed", weight="unit", calculus=None)` is the exact
-count `tr(X)^2 / tr(X^2)` of one Hodge sector; `HARMONIC_LOG` is its float logarithm.
-The sectors are `"completed"` (`L_k + w Pi^h`), `"hodge"` (`L_k`), `"down"` and `"up"`.
-The completion weight is `"unit"` (`w = 1`, the complete field coordinates), `"mean"`
-(the mean nonzero eigenvalue) or `"energy"` (the energy weighted mean eigenvalue, which
-gives exactly `EFFECTIVE_MODES(k, "hodge") + BETTI(k)`). Only traces and the exact
-Betti number are read.
-
-## Native plans and execution provenance
-
-Read queries now execute a typed native DAG. `EXPLAIN` includes that DAG, explicit
-operator domain/codomain descriptors, checked predicates, and selected or deferred
-method information. `Result.native_plan`, `Result.execution`, and
-`Result.provenance` retain the plan, actual adapter observations, and per output
-source/type/rewrite information. Existing result values and legacy plan strings
-remain available.
-
-
-## Channels, stars and scales
-
-```text
-FROM $graph RETURN APPLY(CHANNEL("F"), INDICATOR(CELL(1, 0)))
-FROM $graph RETURN APPLY(CHANNEL("F"), INDICATOR(CELL(1, 0)), exact=true)
-FROM $graph RETURN STAR_CHARACTER(CELL(0, 0), true)
-FROM $graph RETURN SCALE_MOMENT(CHANNEL("G"), 1, true, true)
-FROM $graph RETURN CHARACTER_ENERGY(CHANNEL("T"))
-```
-
-`CHANNEL` uses the bound Rex and does not trace normalize. G follows the source's
-raw/normalized selection; F always references raw G. Actions are incidence factored.
-T, raw G, F and C support exact rational full actions and transposes. Exact APPLY
-retains the same C1 Field carrier as the numerical default, requires integer or
-rational input coefficients, and performs no float matrix reconstruction.
-Declared rational weights remain rational; a stored float weight means its exact
-binary value through the existing source reader. Normalized G's potentially
-irrational full action is not certified rational. See
-exact channel actions.
-`SCALE_MOMENT(operator, order, local=false, exact=false)` returns a trace or a
-diagonal Cochain. Exact mode currently supports order zero and channel order one;
-normalized-G diagonals remain rational even when its full action is numerical.
-Higher numerical moments and energy use sparse products/row reductions, which may
-fill. Star character is the incident edge mean, not a Green solve.
-
-
-## Explicit metrics and Green variants
-
-```text
-FROM $graph RETURN MOMENT($u, $v, METRIC(1, $weights), true)
-FROM $graph RETURN QUADRANCE($u, true, METRIC(1, $weights))
-FROM $graph RETURN SPREAD($u, $v, true, METRIC(1, $weights))
-FROM $graph RETURN GREEN_SOLVE(RESOLVENT(CHANNEL("F"), 0.5), $u)
-FROM $graph RETURN INTEGRATE($omega, $chain, exact=true)
-```
-
-`INTEGRATE` evaluates a Cochain on a Chain with matching source, grade, ordered
-basis and shape. This canonical bilinear dual pairing has no implicit metric
-or complex conjugation; it is distinct from `MOMENT`. Exact mode uses Q and
-the boundary/coboundary operations obey finite Stokes.
-
-Here `$u`, `$v` and `$weights` are bound C1 Cochains, not untyped arrays.
-`METRIC(grade)` is identity; explicit weights must be strictly positive and on
-the same ordered basis. Integer/Fraction contractions remain exact without
-square root coordinates. `MOMENT` is signed/Hermitian, not its squared magnitude.
-The existing exact flag positions in QUADRANCE and SPREAD are unchanged.
-
-`RESOLVENT(L, alpha=1, tol=1e-10, maxiter=1000)` is the numerical matrix free
-action `(I + alpha L)^-1` for a declared Euclidean symmetric PSD operator or a
-native metric PSD Hodge down/up/sum. It is distinct from `GREEN()`'s C0
-pseudoinverse. `GREEN_SOLVE` preserves vector/block shape and reports the observed
-solver method. Weighted Hodge resolvents accept and return **Chains**; the existing
-Euclidean Green actions retain their Cochain/Field contract.
-
-
-`ADJOINT(operator, domain_metric=None, codomain_metric=None)` constructs
-`M_domain^-1 operator* M_codomain`. The two metrics name the **original**
-operator's endpoints; omitted metrics mean identity. For example:
-
-```text
-FROM $graph
-LET a = ADJOINT(BOUNDARY(1), METRIC(1, $edge_weights), METRIC(0, $vertex_weights))
-RETURN APPLY(a, $vertex_chain, exact=true)
-```
-
-This raises a Chain, not a dual Cochain. `ADJOINT(COBOUNDARY(k))` instead retains
-cochain variance. `APPLY` preserves vector/block axes; its new optional `exact`
-flag is supported by certified rational adjoints, weighted Hodge/Dirac and bracket
-actions, not numerical Green solves. Ordinary `COBOUNDARY` remains the metric independent dual transpose.
-No general adjoint is granted a Euclidean PSD certificate. See
-adjoint contracts and acceptance.
-
-`HODGE_DOWN`, `HODGE_UP`, `HODGE_SUM` and `HODGE_DIFFERENCE` expose the
-positive diagonal **Chain** calculus. They compose native boundaries and metric
-adjoints, support Q exact application and preserve empty sectors as exact zero.
-For example, `APPLY(HODGE_SUM(1, metric=$m), $chain, exact=true)` returns a Chain.
-The grade metric and lower/upper neighbor metrics default independently to
-identity. Their metric self adjoint certificates do not imply Euclidean symmetry.
-`RESOLVENT(HODGE_SUM(1, metric=$m))` uses the symmetric system
-`M(I+alpha L)x=Mb`, with inverse diagonal preconditioning and measured residuals
-in the original equation. No Gram matrix, inverse, eigenbasis or square root
-coordinates are assembled. Hodge difference and Dirac are not granted a PSD
-solver; exact solves and general metric solvers remain separate work. See
-weighted Hodge and
-metric Green contracts.
-
-`DIRAC(metrics=None)` and `ANTI_DIRAC(metrics=None)` act on the full carried
-Chain tower. `GRADED_CHAIN([$chain0, $chain1])` preserves separate grade components
-and zero fills omitted grades; `GRADE_COMPONENT(state, grade)` extracts one Chain.
-`APPLY(DIRAC(), GRADED_CHAIN([$chain]), exact=true)` uses the certified Q boundary
-and metric adjoint factors without assembling a block matrix. Supplied metrics
-are a list of grade bound positive diagonals; omitted grades use identity.
-Dirac is metric self adjoint, anti Dirac metric skew adjoint, neither certified
-PSD.
-
-`COMMUTATOR(left, right)` and `ANTICOMMUTATOR(left, right)` construct ordinary
-`AB-BA` and `AB+BA` actions on one canonical grade/variance or the full Chain
-tower. The rightmost factor acts first; no product matrix or eigensystem is
-assembled. Both factors must support exact action to use `exact=true`:
-
-```text
-FROM $graph
-LET d = DIRAC()
-LET a = ANTI_DIRAC()
-LET state = GRADED_CHAIN([$chain])
-RETURN APPLY(COMMUTATOR(d, a), state, exact=true),
-       APPLY(ANTICOMMUTATOR(d, a), state, exact=true)
-```
-
-For a verified chain complex with the same grade metrics, these give twice
-the Hodge down minus up action and zero, respectively. Execution evaluates the
-factors; it never assumes the chain law from their names. Channel brackets use
-the native numerical or newly certified rational actions for T/raw-G/F/C;
-normalized G still has no general rational full action hook. No bracket is automatically certified PSD, including
-the anticommutator of two PSD factors. Nested operand, metric, basis and source
-contracts are retained.
-
-## Overlapping type accessions
-
-```text
-FROM $graph RETURN ACCESS($x, $map, true)
-FROM $graph RETURN MOMENT_TENSOR(ACCESS_TYPES($x, $maps, true), METRIC(1, $weights), true)
-FROM $graph RETURN CO_RELATE(ACCESS($x, $p, true), ACCESS($x, $q, true), METRIC(1), true)
-```
-
-`$map` is an explicit `rexgraph.type_accession.TypeAccession`; `$maps` is an
-ordered `AccessionFamily`. Their sparse maps measure fields from the same ambient
-cell basis into ambient cells or explicitly named `CoordinateSpace` outputs.
-They may overlap, mix coordinates and carry signed coefficients;
-they are not assumed to be projectors or chain preserving subcomplexes. Results
-retain their type labels separately from cell coordinates. MOMENT_TENSOR returns
-the requested type by type matrix: diagonal quadrances and signed/Hermitian
-cross type moments. Common ambient families use the existing diagonal metric.
-Rectangular families can supply a `FamilyMetric` with explicit sparse
-`TypeRealization` maps into that ambient metric. Both `MOMENT_TENSOR` and
-`CO_RELATE` then use the coherent factored form; no cross blocks are assembled.
-Alternatively, `CrossMetric(left_map, right_map, entries)` supplies an individual
-ordered pairing for `CO_RELATE`, without claiming positivity or family coherence.
-Equal coordinate counts never imply the same basis.
-
-The rectangular coordinate extension covers unequal output dimensions and sparse
-cross blocks. Coherent family metrics includes a runnable
-rectangular moment tensor example. Exact chain maps
-adds `CHAIN_MAP($declaration)` for full graded maps with explicit target
-boundaries, plus sparse core composition and a bridge from type accessions.
-Both chain laws and every commuting square are checked over Q. Name only
-accession lookup, induced boundary solving, homotopies and temporal accession
-transport remain future work.
-
-## Local artifacts
-
-Declared datasets are pinned explicitly by the application:
-
-```python
-from io import StringIO
-from rcql import DatasetSource, run
-from rexgraph import RelationSpec
-from rexgraph.io.declaration import DatasetDeclaration
-from rexgraph.io.records import RecordField, RecordSchema
-
-declaration = DatasetDeclaration(
-    "csv", RecordSchema((RecordField("a"), RecordField("b"))),
-    RelationSpec("pair", ("a", "b")))
-data = DatasetSource(declaration, StringIO("a,b\nx,y\n"))
-result = run('FROM DATASET("edges") RETURN BETTI(0)',
-             sources={"edges": data}, exactness="exact")
-assert result.values == (1,)
-```
-
-DatasetSource uses Core's reader, construction and native state codecs. It owns
-a snapshot; changing an input file or a previously materialized graph requires
-a new binding. Its declaration/reader/state identity travels in SourceRef names
-and cache keys. Policies are checked before materialization and retained by the
-graph binding. Query text only resolves registered names, never paths. The
-binding is a live capability; persist DatasetDeclaration and native records
-through RCDB rather than serializing a live input handle.
-
-`SourceSignature`, `SourceRegistry` and `SOURCES` provide the shared trusted source
-classification registry. Explicit priorities preserve the existing source order;
-equal priority matches refuse. Persisted names never load signature providers.
-
-`run(text_or_query, sources=..., params=..., exactness="declared", cache=None)`
-delegates to Executor and QueryCache. The default retains declared arithmetic.
-`"exact"` accepts finite read only queries without MATCH, refuses effectful
-operations before execution, and rejects approximate/rounded numeric outputs,
-including mixed mappings, sequences and object arrays. It performs no numeric
-conversion. Structural sources and descriptors retain their structural contract;
-their annotations are not reinterpreted as numeric output. The request is retained
-in provenance and cache identity. This policy does not change a numerical operator
-into an exact implementation.
-
-RCQL reads registered `FileCatalog` sources. It does not expose a general filesystem primitive. File names are catalog relative names and the catalog resolves and rechecks them before each access.
-
-```text
-FROM CATALOG("files") RETURN FILES(), SEARCH("document")
-FROM FILE("files", "root0/document.rex") RETURN DESCRIBE(), STATE_HASH()
-```
-
-RCDB stores use the same source model. Read operators include `RCDB_LIST`, `RCDB_SEARCH`, `RCDB_GET`, `RCDB_HISTORY`, `RCDB_COMMITS`, `RCDB_VERIFY`, `RCDB_HASH`, `RCDB_STATS`, `RCDB_SECURITY`, and `RCDB_STATE_HASH`. The last hashes the versioned logical history, including canonical payload identities, metadata, validity and commit identities, not a backend index. It requires read, history and identity permissions and reads every visible published payload.
-
-`FROM RCDB("db")` resolves a bound store, never a URI. Record source transforms
-and GET/HASH use RCDB's selected version snapshot contract. See
-native RCDB reads for selectors, provenance, method
-requirements and the per handle consistency boundary.
+The default `exactness="declared"` retains the arithmetic declared by each
+source and operator. `exactness="exact"` checks that a supported finite read
+query without MATCH returns no approximate or rounded numeric values. It
+checks the result's arithmetic without converting a numerical algorithm. Exact channel and boundary actions
+are requested through their operator arguments.
+
+A Chain records coefficients for a combination of cells; a Cochain assigns
+values to cells and evaluates those combinations. Boundary operators lower the
+grade of a Chain, while coboundary operators raise the grade of a Cochain.
+RCQL checks the grade and cell basis when combining typed values and operators,
+including the identity and order of the cells. Explicit metrics determine
+metric adjoints. The [operator reference](REFERENCE.md#operator-contracts)
+covers Hodge, Green, Dirac, channel and metric operations.
 
 ## Capabilities
 
-A `BoundSource` carries a `SourcePolicy`. Signatures declare the requirements used by both EXPLAIN and execution; permissions are checked before an expression operator receives the underlying source. Derived `FILE` sources retain the catalog policy.
+| Area | Queries and interfaces |
+| --- | --- |
+| Structure | Cell counts, supports, arity, boundaries and Betti numbers |
+| Fields and channels | Typed actions, exact coefficients, Hodge components and channel measurements |
+| Selection and edits | Restrictions, partitions, insertions and explicit structural changes |
+| Registered data | Declared datasets, file catalogs and RCDB records |
+| Plans and provenance | `EXPLAIN`, native plans and observed execution methods |
+| Exact artifacts | Portable results and dependency checked query caches |
+| Advanced declarations | Sheaf sections, type accessions, names and finite programs |
+| Record mutations | Typed mutation requests with explicit publication and version guards |
 
-Exact record operations require `identity`. Mutation requires both `mutate` and `identity`. Commit history requires both `history` and `identity`. `RCDB_SECURITY` requires both `security` and `admin`, retaining the previous combined planner/executor requirements. Resolving an identity does not grant the `read` capability for subsequent Rex computations. The complete requirement table is in the operator contract note above.
+Use `Executor` and `parse` to reuse a runtime, or the typed builder interfaces
+to assemble queries in Python. The [API reference](REFERENCE.md) gives the
+operator inventory, examples and requirements for advanced declarations.
 
-A source policy can also restrict which structural signature fields appear in record lists and searches.
+## Registered sources and permissions
 
-## Mutations
+The application supplies source objects through `sources`. A declared dataset
+combines a Core schema and relation mapping with a source file or stream.
+A file catalog exposes selected roots under relative names, while an RCDB
+binding exposes a supplied store. Query text resolves those registrations.
+See [dataset and catalog examples](REFERENCE.md#local-artifacts).
 
-Typed mutation requests use `MutationQuery`. They do not share the ordinary read operator registry.
+A `BoundSource` can carry a `SourcePolicy`. Planning and execution enforce
+operator permissions, including record history, identity and mutation
+requirements. `EXPLAIN` checks the same type and permission contracts without
+executing expression adapters; resolving a selected record can still read its
+state to establish the source contract.
 
-Text uses `FROM $db MUTATE "id" SET state = $candidate COMMIT`, with optional
-actor, validity endpoints and expected version. `EXPLAIN` checks a typed native
-input/commit plan without publishing. See mutation contracts
-for the supported grammar, native DAG, version guard and execution provenance.
+## Portable exact results
 
-A mutation lowers to the RCDB `commit_mutation` path, which constructs a TemporalRex mutation package and applies the store integrity policy before publication. A store configured with `require_commits=True` rejects ordinary `put` updates and raw deletion.
+```python
+from rcql import Result
+
+payload = result.to_bytes()
+restored = Result.from_bytes(payload)
+assert restored.values == result.values
+```
+
+The result codec preserves exact values, plans, source references and
+provenance. Graph results carry native sealed state, and supported Chain and
+Cochain values retain their variance and basis. Decoding checks integrity
+without rerunning the query. Values without a portable codec raise `TypeError`.
+The default artifact limit is 64 MiB and can be configured with `max_bytes`.
+
+System uses this codec for native result downloads, and the query cache uses
+the same payload. See the [portable result reference](REFERENCE.md#portable-exact-results)
+for the supported value inventory and cache identity rules.
+
+## Record mutations
+
+Mutation queries publish through RCDB's `commit_mutation` contract. They use
+an explicit candidate state and can require an expected record version:
+
+```text
+FROM $db MUTATE "sample" SET state = $candidate COMMIT
+```
+
+The application binds `db` and `candidate` and supplies the required
+permissions. `EXPLAIN` plans a mutation without publishing it. See the
+[mutation reference](REFERENCE.md#mutations) and [RCDB guide](../rcdb/README.md)
+for publication, history and concurrency behavior.
+
+## Reference and testing
+
+The [API reference](REFERENCE.md) covers operators and detailed mathematical
+contracts. The [dependency guide](../DEPENDENCIES.md) lists development extras.
+From the repository root, run `make test-rcql TEST_ARGS='-rs'` after installing
+a development profile. RCQL is distributed under the [Apache License 2.0](LICENSE).

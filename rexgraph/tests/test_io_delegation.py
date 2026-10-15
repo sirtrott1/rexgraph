@@ -106,6 +106,7 @@ def test_generic_save_supports_safetensors(tmp_path):
     """io.load routed .safetensors but io.save had no branch for it, so the flagship
     format was load only through the generic entry point and save() raised
     'Unknown format'."""
+    pytest.importorskip("safetensors")
     import numpy as np
 
     from rexgraph import io
@@ -130,7 +131,7 @@ def test_generic_save_load_round_trips_every_dependency_free_format(tmp_path):
 
     rex = RexGraph(sources=np.array([0, 1, 2], np.int32),
                    targets=np.array([1, 2, 0], np.int32))
-    for name in ("g.rcbd", "g.safetensors", "g.json"):
+    for name in ("g.rcbd", "g.json"):
         p = tmp_path / name
         io.save(str(p), rex)
         back = io.load(str(p))
@@ -154,6 +155,16 @@ def test_unknown_extension_is_an_error_not_a_silent_zarr_write(tmp_path):
         with pytest.raises(ValueError) as ei:
             io.save(str(tmp_path / bad), rex)
         assert "format" in str(ei.value).lower()
+
+
+@pytest.mark.parametrize("suffix", [".rfcx", ".rfcxs", ".rfcxa", ".rfcxg", ".unknown"])
+def test_existing_unknown_format_does_not_dispatch_to_hdf5(tmp_path, suffix):
+    from rexgraph import io
+
+    path = tmp_path / ("native" + suffix)
+    path.write_bytes(b"native archive bytes require their declared owning reader")
+    with pytest.raises(ValueError, match="Unknown format for extension"):
+        io.load(path)
 
 
 def test_directory_and_extensionless_heuristics_still_work(tmp_path):

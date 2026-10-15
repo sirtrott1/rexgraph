@@ -113,7 +113,7 @@ def _strain_equilibrium_sparse(rex, kappa_f, born_face):
     """strain_equilibrium via SPARSE B1/B2 matvecs: no dense boundary
     operators, O(nnz), scale free. Mirrors `_rcfe.strain_equilibrium`:
       alpha = <B2 κ, B2 pF> / ||B2 pF||²,  δ = face_deficit(κ, alpha, pF),
-      σ = B2 δ  (relational strain),  Bianchi: B1 σ = 0."""
+      σ = B2 δ  (relational strain),  boundary residual B1 σ."""
     from rexgraph.core._rcfe import face_deficit
     from rexgraph.core._sparse import to_scipy_csr
     nF = int(rex.nF_hodge)
@@ -131,7 +131,7 @@ def _strain_equilibrium_sparse(rex, kappa_f, born_face):
     alpha = float((B2k @ B2p) / denom) if denom > 1e-15 else 0.0
     delta = np.asarray(face_deficit(kappa_f, alpha, born_face, nF), dtype=np.float64)
     sigma = np.asarray(B2 @ delta).ravel()                 # σ = B2 δ
-    residual = np.asarray(B1 @ sigma).ravel()              # B1 σ (Bianchi)
+    residual = np.asarray(B1 @ sigma).ravel()              # boundary residual B1 σ
     max_res = float(np.max(np.abs(residual))) if residual.size else 0.0
     return {
         'alpha': alpha, 'delta': delta, 'sigma': sigma,
@@ -624,13 +624,12 @@ class AnalysisPipeline:
             # one token are two spans, so two witnesses on one vertex, and their
             # difference is a cycle. It is a real class (a bigon IS a hole), but it
             # records an occurrence count rather than the shape of the document, and
-            # being 2 sparse it dominates any shortest cycle reading. Measured across
-            # the Gutenberg store it carries 37% to 85% of dim_H.
+            # it can dominate a shortest cycle reading.
             #
             # dim_H_simple is beta_1 of the complex with identical boundary relations
-            # identified, so the two ALWAYS sum to dim_H: it is a quotient, not a
+            # identified, so the two always sum to dim_H: it is a quotient, not a
             # subtraction, and a face that fills a multiplicity cycle is accounted
-            # for. ~0.35s at nE 2e6, against the ~5s the betti call beside it costs.
+            # for.
             try:
                 from rexgraph.harmonic_sparse import simple_cycle_dimension
                 _simple = int(simple_cycle_dimension(rex))
@@ -722,22 +721,13 @@ class AnalysisPipeline:
         signal: np.ndarray,
         signal_name: str = "signal",
     ) -> dict:
-        """Decompose an arbitrary edge signal into Hodge components.
+        """Decompose a supplied edge signal using the complex's boundary operators.
 
-        This is the method that the case studies use to analyze
-        survival correlations, drug propagation, query relevance,
-        or any domain specific edge signal.
-
-        The decomposition reveals how much of the signal is:
-        - **Gradient** (im B1^T): explainable by vertex level data.
-          Accessible to standard graph methods (Laplacian, PageRank).
-        - **Curl** (im B2): face level interactions, three way
-          relationships.  Requires face structure to detect.
-        - **Harmonic** (ker L1): topological residual in the kernel
-          of the Hodge Laplacian.  Requires the full complex.
-
-        In the lung cancer study, only 9.6% of the survival signal
-        was gradient.  90.4% was invisible to pairwise methods.
+        The gradient component lies in im B1^T, the curl component in
+        im B2, and the harmonic component in ker L1. These components
+        are orthogonal when B1 B2 = 0. The result includes their energy
+        fractions and values on each edge, together with channel character,
+        face and void dipole values, and orthogonality checks.
 
         Parameters
 
@@ -774,7 +764,7 @@ class AnalysisPipeline:
                 float(h.get("pct_harm", 0)), 6
             )
 
-            # What fraction is invisible to standard methods?
+            # Combined curl and harmonic energy fraction.
             result["pct_beyond_pairwise"] = round(
                 float(h.get("pct_curl", 0))
                 + float(h.get("pct_harm", 0)),
@@ -1034,7 +1024,7 @@ class AnalysisPipeline:
         # ε₁: chain condition (should be 0 for a valid complex)
         result["eps1_chain"] = 0.0 if rex.chain_valid else 1.0
 
-        # ε₃: equiweight ‖ΓD + DΓ‖. The derived axiom, read from the complex rather
+        # ε₃: equiweight ‖ΓD + DΓ‖. The grading residual, read from the complex rather
         # than asserted here: RexGraph.equiweight_residual settles it from D's block
         # structure, so it costs nothing and no dense Dirac is formed. See
         # rexgraph.dirac_propagator.equiweight_residual for the version that takes a
@@ -1076,7 +1066,7 @@ class AnalysisPipeline:
         violate the chain condition at each face), the optimal
         coupling constant alpha, the per face deficit delta, the
         relational strain sigma = B2 * delta, and verifies the
-        Bianchi identity B1 * sigma = 0.
+        boundary residual B1 * sigma.
 
         The strain lives in im(B2), the curl subspace.  It has zero
         gradient and zero harmonic component by construction.
@@ -1142,7 +1132,7 @@ class AnalysisPipeline:
         #    This measures the imbalance between curvature and
         #    equal enforcement.
         #
-        # Both satisfy B1*sigma = 0 (Bianchi identity).
+        # Both satisfy B1*sigma = 0 when boundary closure holds.
         se_curv = None
         try:
             nF = rex.nF_hodge

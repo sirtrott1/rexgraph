@@ -56,5 +56,7 @@ option('openmp', type: 'feature', value: 'auto',
        description: 'Build the OpenMP lanes where the compiler provides OpenMP.')
 
 # GPU architecture for the optional HIP ternary lane, e.g. gfx1151. Empty asks rocminfo.
+option('hip', type: 'feature', value: 'auto',
+       description: 'Build the native HIP packed kernels.')
 option('hip_arch', type: 'string', value: '',
        description: 'offload arch for the HIP ternary kernel (empty: detect)')

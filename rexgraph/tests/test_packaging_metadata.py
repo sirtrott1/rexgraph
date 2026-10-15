@@ -1,13 +1,4 @@
-"""Metadata that PyPI would reject, caught here instead of at upload.
-
-Classifiers are not free text. PyPI validates every one against a fixed list and refuses
-the whole upload if any is unknown, so a single wrong string fails a release after the
-wheels are built. That is a slow way to learn about a typo.
-
-It was not hypothetical: `Topic :: Scientific/Engineering :: Bioinformatics` sat in
-pyproject through six releases and is not a classifier. The real one is `Bio-Informatics`,
-with the hyphen. Nothing local ever checks it, because nothing local ever uploads.
-"""
+"""Validate distribution classifiers, licenses, dependencies and packaged assets."""
 
 from __future__ import annotations
 
@@ -18,7 +9,10 @@ import sys
 from pathlib import Path
 
 import pytest
-import tomllib
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFESTS = ("pyproject.toml", "agent/pyproject.toml")

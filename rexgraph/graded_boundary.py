@@ -400,7 +400,7 @@ def _canonical_c1_columns(B1: sp.spmatrix):
     """Exact C1 columns if ``B1`` is the declared canonical carrier, else ``None``.
 
     This does not recover rationals from arbitrary floats. It recognises only the
-    unique C1 representation declared by the relational complex axiom: one literal
+    unique C1 representation used by the stored primary relations: one literal
     ``-1`` and literal equal ``1/(k-1)`` shares, or one literal ``+1`` witness. Once
     recognised, the exact fractions are reconstructed from arity, not from decimals.
     """
@@ -709,7 +709,7 @@ def _rational_data(M: sp.spmatrix):
     continued fraction would be answering a question that should not have been asked.
     See `RexGraph._integer_B1`.
 
-    These were Fractions, which was carrying a denominator that is provably always 1:
+    These were Fractions, which was carrying a denominator that is always 1 after validation:
     the integrality check on the line above is what makes every entry an integer, and
     the reduction below keeps them integral by cross multiplying rather than dividing.
     """
@@ -736,8 +736,8 @@ def _exact_rank_reduction(M: sp.spmatrix, *, with_pivots: bool = False):
     """EXACT rank of an INTEGER sparse matrix by column reduction over Z: eigen free,
     NO SVD, no eigendecomposition, no dense operator. Each column is reduced against the
     registered pivots (highest nonzero row 'low' convention, as in persistence
-    reduction); rank = number of columns that keep a pivot. This is the canon's
-    `rank(B_k) via Z/Q elimination` (Part III). Columns are sparse dicts, so cost tracks
+    reduction); rank = number of columns that keep a pivot. The calculation uses
+    integer column elimination with sparse dict columns. Cost tracks
     FILL, not n^3, which is what the two choices below are both about.
 
     **The arithmetic stays in Z.** `col <- piv[low]*col - col[low]*piv` clears the
@@ -830,8 +830,7 @@ def _pairwise_rank(M: sp.spmatrix):
     a graph, and there the rank identity is combinatorial: each component contributes
     one dimension to the kernel of ``B_1^T`` and nothing else does. Union find answers
     it in near linear time, where the general column reduction is quadratic in the
-    fill it creates and carries Fraction arithmetic per entry, so on a large complex
-    the shortcut is the difference between seconds and minutes for the same integer.
+    fill it creates and carries Fraction arithmetic per entry.
 
     The identity is NOT general, which is why this is a guarded pre check rather than
     the path. An arity-k relation touches k vertices while contributing rank one, so
@@ -878,8 +877,6 @@ def _spanned_branching_rank(M: sp.spmatrix):
     component. Refuses otherwise, so the exact reduction still runs wherever this does
     not apply.
 
-    This is the difference between 14.3s and half an hour on a real lexical complex of
-    1,626,490 relations, for the same integer.
     """
     integers = _integer_columns(M)
     if integers is not None:
@@ -1000,11 +997,11 @@ def _column_integer_form(M: sp.spmatrix, atol: float = 1e-9):
 
 
 def _sparse_rank(M: sp.spmatrix, tol: float = 1e-9, *, exact: bool = False) -> int:
-    """Rank of a sparse matrix. Betti comes from RANKS (the canon), not spectra.
+    """Rank of a sparse matrix. Betti calculations use the resulting boundary ranks.
 
     For INTEGER boundary maps (the unweighted topology) rank is computed EXACTLY and
-    EIGEN FREE by rational column reduction (:func:`_exact_rank_reduction`), the
-    canon's Z/Q-elimination path: no SVD, no dense operator. Only genuinely
+    EIGEN FREE by rational column reduction (:func:`_exact_rank_reduction`), using
+    integer column elimination: no SVD, no dense operator. Only genuinely
     non integer (float weighted) matrices fall back to the dense/truncated SVD.
 
     A pairwise boundary map takes the combinatorial identity first
@@ -1070,9 +1067,8 @@ def _sparse_rank(M: sp.spmatrix, tol: float = 1e-9, *, exact: bool = False) -> i
             return int(np.sum(s > max(thresh, tol)))
     # Large, and neither exact path applied. A truncated SVD can only CONFIRM a rank
     # below its own k; if every computed singular value clears the threshold the rank is
-    # at least k and this routine does not know it. Returning k there reports a cap as a
-    # measurement, which is how a branching BindingDB complex read rank 400 against a
-    # true 4673. So it answers when it can and raises when it cannot.
+    # at least k and this routine does not know it. Raise when the computed singular
+    # values establish only a lower bound rather than the rank.
     k = min(min(m, n) - 1, 400)
     import scipy.sparse as sp
     s = sp.linalg.svds(M.asfptype(), k=k, return_singular_vectors=False)

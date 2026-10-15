@@ -1,20 +1,10 @@
 """
-OCR integration: unified client for multiple OCR backends.
+OCR clients for local models, inference servers and cloud services.
 
-Supports three OCR providers through a single adapter interface:
-
-    1. **Unlimited-OCR / DeepSeek-OCR-2** (self-hosted GPU): connects
-       to a running SGLang or OpenAI-compatible server.  Supports
-       Baidu's Unlimited-OCR (Jun 2026), DeepSeek-OCR-2 (Jan 2026),
-       and DeepSeek-OCR (Oct 2025) - all use the same protocol.
-
-    2. **Mistral OCR** (cloud API): uses the ``mistralai`` SDK to
-       call Mistral's ``mistral-ocr-latest`` model.  No GPU required,
-       just a ``MISTRAL_API_KEY``.  Native PDF support (no conversion).
-
-    3. **Offline stub**: when no server or API key is available,
-       falls back to Tesseract OCR or returns empty results so the
-       pipeline can still be tested.
+The clients return page text through a shared result format. Server clients use
+the OpenAI compatible API; Mistral accepts PDFs directly. Local clients use
+Tesseract, PaddleOCR or GOT OCR when their dependencies and model files are
+available. PDF rendering runs in a separate process and rejects partial output.
 
 Usage:
 
@@ -50,6 +40,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from agent.data_paths import huggingface_cache_root
+from agent.model_files import cached_model_path
+
 logger = logging.getLogger(__name__)
 
 # Constants
@@ -64,6 +57,7 @@ DEFAULT_NGRAM_WINDOW_MULTI = 1024
 DEFAULT_TEMPERATURE = 0
 REQUEST_TIMEOUT = 1200
 MAX_RETRIES = 3
+PDF_CONVERSION_TIMEOUT = 300
 
 IMAGE_EXTENSIONS = frozenset({
     ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif",
@@ -163,15 +157,58 @@ def _pdf_to_images_worker(pdf_path: str, out_dir: str, dpi: int) -> int:
     cleanup segfaults it only kills the subprocess, not the server.
     """
     import fitz  # PyMuPDF
-    doc = fitz.open(pdf_path)
-    mat = fitz.Matrix(dpi / 72, dpi / 72)
-    n = 0
-    for i, page in enumerate(doc):
-        out = os.path.join(out_dir, "page_%04d.png" % (i + 1))
-        page.get_pixmap(matrix=mat).save(out)
-        n += 1
-    doc.close()
+    with fitz.open(pdf_path) as doc:
+        mat = fitz.Matrix(dpi / 72, dpi / 72)
+        n = 0
+        for i, page in enumerate(doc):
+            out = os.path.join(out_dir, "page_%04d.png" % (i + 1))
+            page.get_pixmap(matrix=mat).save(out)
+            n += 1
     return n
+
+
+def _pdf_conversion_process(pdf_path, out_dir, dpi, sender):
+    """Send the complete page count or a rendering error to the parent process."""
+    try:
+        sender.send((True, _pdf_to_images_worker(pdf_path, out_dir, dpi)))
+    except Exception as exc:
+        sender.send((False, str(exc)[:1000]))
+    finally:
+        sender.close()
+
+
+def _run_pdf_conversion(pdf_path: str, out_dir: str, dpi: int) -> int:
+    """Run rendering in a separate process with a bounded shutdown on timeout."""
+    import multiprocessing
+
+    ctx = multiprocessing.get_context("spawn")
+    receiver, sender = ctx.Pipe(duplex=False)
+    process = ctx.Process(target=_pdf_conversion_process, args=(pdf_path, out_dir, dpi, sender))
+    started = False
+    try:
+        process.start()
+        started = True
+        sender.close()
+        process.join(timeout=PDF_CONVERSION_TIMEOUT)
+        if process.is_alive():
+            raise TimeoutError(f"PDF conversion exceeded {PDF_CONVERSION_TIMEOUT} seconds")
+        if process.exitcode != 0 or not receiver.poll():
+            raise RuntimeError(f"PDF conversion worker exited with status {process.exitcode}")
+        ok, result = receiver.recv()
+        if not ok:
+            raise RuntimeError(result)
+        return result
+    finally:
+        sender.close()
+        receiver.close()
+        if started:
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=5)
+                if process.is_alive():
+                    process.kill()
+                    process.join()
+            process.close()
 
 
 def _pdf_to_images(pdf_path: str, dpi: int = 300) -> list[str]:
@@ -186,44 +223,34 @@ def _pdf_to_images(pdf_path: str, dpi: int = 300) -> list[str]:
     taking down the server.
     """
     try:
-        import fitz  # noqa: F401, check availability before spawning
+        from importlib.util import find_spec
+        available = find_spec("fitz") is not None
     except ImportError as exc:
+        raise ImportError("PyMuPDF is required for PDF processing. Install with: pip install pymupdf") from exc
+    if not available:
         raise ImportError(
             "PyMuPDF is required for PDF processing. "
             "Install with: pip install pymupdf"
-        ) from exc
+        )
+    if type(dpi) is not int or dpi <= 0:
+        raise ValueError("PDF resolution must be a positive integer")
 
     tmp_dir = tempfile.mkdtemp(prefix="unlimited_ocr_")
 
     try:
-        import multiprocessing
-        from concurrent.futures import ProcessPoolExecutor
-        from concurrent.futures import TimeoutError as FuturesTimeout
-        # Use spawn (not fork) so the child doesn't inherit torch/CUDA state
-        ctx = multiprocessing.get_context("spawn")
-        with ProcessPoolExecutor(max_workers=1, mp_context=ctx) as pool:
-            future = pool.submit(_pdf_to_images_worker, pdf_path, tmp_dir, dpi)
-            future.result(timeout=300)
-    except (FuturesTimeout, Exception) as e:
-        # Subprocess died (segfault, timeout, etc.): check if it
-        # managed to write any pages before dying
-        existing = sorted(
-            f for f in os.listdir(tmp_dir)
-            if f.endswith(".png")
-        )
-        if not existing:
-            _cleanup_pdf_temp(tmp_dir)
-            raise RuntimeError(
-                f"PDF conversion failed (subprocess): {e}"
-            ) from e
-        len(existing)
-
-    paths = sorted(
-        os.path.join(tmp_dir, f)
-        for f in os.listdir(tmp_dir)
-        if f.endswith(".png")
-    )
-    return paths
+        count = _run_pdf_conversion(pdf_path, tmp_dir, dpi)
+        if type(count) is not int or count <= 0:
+            raise RuntimeError("PDF conversion produced no pages")
+        paths = [Path(tmp_dir) / f"page_{index:04d}.png" for index in range(1, count + 1)]
+        if (len(list(Path(tmp_dir).glob("*.png"))) != count
+                or any(not path.is_file() or path.stat().st_size == 0 for path in paths)):
+            raise RuntimeError("PDF conversion produced an incomplete page set")
+        return [str(path) for path in paths]
+    except BaseException as exc:
+        _cleanup_pdf_temp(tmp_dir)
+        if isinstance(exc, Exception):
+            raise RuntimeError(f"PDF conversion failed: {exc}") from exc
+        raise
 
 
 def _cleanup_pdf_temp(tmp_dir: str):
@@ -638,13 +665,10 @@ class UnlimitedOCRClient:
 
 # Offline fallback
 class OfflineOCRClient:
-    """Fallback client that extracts text from images using
-    lightweight local methods (Tesseract OCR) when the
-    Unlimited OCR server is unavailable.
+    """Local OCR using Tesseract and its English language data.
 
-    Falls back to an empty string if Tesseract is also unavailable,
-    allowing the pipeline to proceed with whatever text can be
-    extracted.
+    Missing dependencies and extraction failures raise RuntimeError. Successful
+    extraction may return empty text when the image contains no readable text.
     """
 
     def __init__(self):
@@ -655,10 +679,10 @@ class OfflineOCRClient:
         try:
             import subprocess
             result = subprocess.run(
-                ["tesseract", "--version"],
-                capture_output=True, timeout=5,
+                ["tesseract", "--list-langs"],
+                capture_output=True, text=True, timeout=5,
             )
-            return result.returncode == 0
+            return result.returncode == 0 and "eng" in result.stdout.split()
         except Exception:
             return False
 
@@ -697,21 +721,19 @@ class OfflineOCRClient:
 
     def _extract(self, image_path: str) -> str:
         if not self._has_tesseract:
-            logger.warning(
-                "No OCR backend available for %s; returning empty text",
-                image_path,
-            )
-            return ""
+            raise RuntimeError("Tesseract and its English language data are required for local OCR")
         try:
             import subprocess
             result = subprocess.run(
                 ["tesseract", image_path, "stdout"],
                 capture_output=True, text=True, timeout=60,
             )
-            return result.stdout.strip()
-        except Exception as e:
-            logger.warning("Tesseract failed for %s: %s", image_path, e)
-            return ""
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            raise RuntimeError(f"Tesseract failed for {image_path}: {exc}") from exc
+        if result.returncode != 0:
+            detail = result.stderr.strip()[-2000:] or f"exit status {result.returncode}"
+            raise RuntimeError(f"Tesseract failed for {image_path}: {detail}")
+        return result.stdout.strip()
 
 
 # PaddleOCR (free, local, CPU or GPU)
@@ -755,20 +777,26 @@ class PaddleOCRClient:
         if self._engine is not None:
             return self._engine
         try:
-            if self.use_structure:
-                from paddleocr import PPStructureV3
-                self._engine = PPStructureV3(
-                    lang=self.lang,
+            import paddleocr
+            if self.use_structure and hasattr(paddleocr, "PPStructureV3"):
+                try:
+                    self._engine = paddleocr.PPStructureV3(
+                        lang=self.lang, device="gpu:0" if self.use_gpu else "cpu",
+                        use_doc_orientation_classify=False, use_doc_unwarping=False,
+                    )
+                    return self._engine
+                except Exception as exc:
+                    logger.warning("Structured PaddleOCR initialization failed: %s", exc)
+            PaddleOCR = paddleocr.PaddleOCR
+            if hasattr(PaddleOCR, "predict"):
+                self._engine = PaddleOCR(
+                    lang=self.lang, device="gpu:0" if self.use_gpu else "cpu",
                     use_doc_orientation_classify=False,
                     use_doc_unwarping=False,
                 )
             else:
-                from paddleocr import PaddleOCR
-                self._engine = PaddleOCR(
-                    lang=self.lang,
-                    use_doc_orientation_classify=False,
-                    use_doc_unwarping=False,
-                )
+                self._engine = PaddleOCR(lang=self.lang, use_angle_cls=True,
+                                        use_gpu=self.use_gpu, show_log=False)
         except Exception as e:
             logger.warning("PaddleOCR initialization failed: %s", e)
             self._engine = None
@@ -835,37 +863,31 @@ class PaddleOCRClient:
         if engine is None:
             raise RuntimeError("PaddleOCR engine failed to initialize")
         try:
+            if not hasattr(engine, "predict"):
+                results = engine.ocr(image_path, cls=True)
+                return "\n".join(line[1][0] for page in (results or [])
+                                 for line in (page or []))
             results = list(engine.predict(image_path))
             if not results:
                 return ""
 
-            # PPStructureV3 returns objects with markdown content
-            if self.use_structure and hasattr(results[0], "markdown"):
-                return results[0].markdown or ""
-
-            # PPStructureV3 may return page level results
-            if self.use_structure:
-                parts = []
-                for r in results:
-                    md = getattr(r, "markdown", None)
-                    if md:
-                        parts.append(md)
-                    elif hasattr(r, "rec_texts"):
-                        parts.extend(r.rec_texts)
-                return "\n".join(parts)
-
-            # Plain PaddleOCR returns detection + recognition results
             parts = []
             for r in results:
-                if hasattr(r, "rec_texts"):
+                markdown = getattr(r, "markdown", None) if self.use_structure else None
+                if isinstance(markdown, dict):
+                    markdown = markdown.get("markdown_texts")
+                if isinstance(markdown, str) and markdown:
+                    parts.append(markdown)
+                elif isinstance(r, dict):
+                    parts.extend(r.get("rec_texts", []))
+                elif hasattr(r, "rec_texts"):
                     parts.extend(r.rec_texts)
                 elif hasattr(r, "text"):
                     parts.append(r.text)
             return "\n".join(parts)
 
         except Exception as e:
-            logger.warning("PaddleOCR failed for %s: %s", image_path, e)
-            return ""
+            raise RuntimeError(f"PaddleOCR failed for {image_path}: {e}") from e
 
 
 # GOT-OCR2.0 (free, HuggingFace transformers, GPU)
@@ -918,19 +940,19 @@ class GOTOCRClient:
                 "Install with: make install-got-ocr"
             ) from exc
 
-        cached = self._model_cached()
-        if not cached:
+        model_path = self._cached_model_path()
+        if model_path is None:
             raise RuntimeError(
                 f"GOT-OCR2.0 model '{self.model_name}' is not downloaded. "
                 "Run: make install-got-ocr"
             )
 
         self._processor = AutoProcessor.from_pretrained(
-            self.model_name, trust_remote_code=True,
+            str(model_path), trust_remote_code=True,
             local_files_only=True,
         )
         self._model = GotOcr2ForConditionalGeneration.from_pretrained(
-            self.model_name,
+            str(model_path),
             trust_remote_code=True,
             device_map=self.device,
             local_files_only=True,
@@ -938,19 +960,14 @@ class GOTOCRClient:
         self._model.eval()
 
     def _model_cached(self) -> bool:
-        """Check if the model weights are in the local HuggingFace cache. No network."""
-        cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
-        model_dir_name = "models--" + self.model_name.replace("/", "--")
-        model_dir = cache_dir / model_dir_name
-        # Check for actual weight files, not just the directory
-        if not model_dir.exists():
-            return False
-        snapshots = model_dir / "snapshots"
-        if snapshots.exists() and any(snapshots.iterdir()):
-            return True
-        # Fallback: check for blobs (older cache format)
-        blobs = model_dir / "blobs"
-        return blobs.exists() and any(blobs.iterdir())
+        """Check required weight files without requesting a download."""
+        return self._cached_model_path() is not None
+
+    def _cached_model_path(self) -> Path | None:
+        cache_dir = huggingface_cache_root()
+        # Older Transformers versions support a separate cache setting.
+        cache_dir = Path(os.environ.get("TRANSFORMERS_CACHE") or cache_dir).expanduser()
+        return cached_model_path(self.model_name, cache_dir)
 
     def is_available(self) -> bool:
         """Check whether transformers, torch, and accelerate are importable
@@ -1364,7 +1381,7 @@ def create_ocr_client(
             logger.info("Using Mistral OCR cloud API")
             return client
 
-    # Try GOT-OCR2.0 (GPU, better quality for academic/math papers)
+    # Try the optional GOT-OCR2.0 GPU backend
     try:
         got = GOTOCRClient(**{
             k: v for k, v in kwargs.items()

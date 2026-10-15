@@ -13,6 +13,8 @@ handler owns the work.
 """
 from __future__ import annotations
 
+from agent.data_paths import config_root
+
 import builtins
 import contextlib
 import json
@@ -32,8 +34,7 @@ def _now() -> str:
 
 
 def _runs_dir() -> Path:
-    base = Path(os.environ.get("REXGRAPH_CONFIG_DIR", Path.home() / ".config" / "rexgraph"))
-    return base / "runs"
+    return config_root() / "runs"
 
 
 # the run record
@@ -352,7 +353,7 @@ def _pipeline(ctx: RunContext) -> dict:
         arch = ctx.params["archetype"]
         opt = ctx.params.get("optimizer") or (p.optimizer if p else None) or "auto"
         if (ctx.params.get("worker") or ctx.params.get("predict")) and not ckpt:
-            base = os.environ.get("REXGRAPH_CONFIG_DIR") or os.path.expanduser("~/.config/rexgraph")
+            base = str(config_root())
             ckpt = os.path.join(base, "pipeline_models", ctx.params.get("name", "model"))
         device = _phase_device(ctx)              # setup ComputeSpec.backend -> resolved torch device
         ctx.log(f"stage: train {arch} (optimizer={opt}, steps={ctx.params.get('steps', 150)}, "
@@ -416,7 +417,7 @@ def _bench(ctx: RunContext) -> dict:
             ctx.log(f"{label} step {i+1}/{total} loss {loss:.4f}")
 
     if ctx.params.get("ab"):
-        opts = tuple(ctx.params.get("optimizers") or ("hodge", "adam"))
+        opts = tuple(ctx.params.get("optimizers") or ("adam", "adamw"))
         ctx.log(f"A/B {name}: {' vs '.join(opts)} (steps={steps})")
         res = benchmarks.benchmark_ab(name, optimizers=opts, steps=steps, on_step=on_step)
         ctx.log(f"verdict: {res.get('verdict')}")

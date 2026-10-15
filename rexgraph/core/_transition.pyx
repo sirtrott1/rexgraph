@@ -181,7 +181,7 @@ def build_vertex_transition_matrix(np.ndarray[f64, ndim=2] L0):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def build_lazy_transition_matrix(np.ndarray[f64, ndim=2] W, double lazy=0.5):
-    """Lazy random walk: W_lazy = lazy * I + (1: lazy) * W.
+    """Lazy random walk: W_lazy = lazy * I + (1 - lazy) * W.
 
     Ensures aperiodicity. Fused single pass, no temporaries.
     """

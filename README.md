@@ -1,950 +1,389 @@
 # RexGraph
 
-RexGraph is relational mathematics in Python and compiled Cython kernels.
+RexGraph is a Python library for working with relational complexes, with compiled
+Cython kernels for sparse storage and numerical computation. It represents a
+relationship as one cell, including relationships with several participants,
+and records boundaries between cell grades: vertices at grade 0, relations at
+grade 1, faces at grade 2 and higher cells at subsequent grades. This allows
+an application to retain the structure of an observation, analyze flows through
+it, and store the result while preserving relationships with several participants.
 
-One relation may bind several objects, and several relations may in turn form
-the boundary of a higher process. Relations are primary. Objects are derived
-through their identified boundary occurrences, not declared first and connected
-afterwards. A relation keeps its identity, orientation and share as its boundary
-is expanded, measured or compared through time.
+The library provides exact integer and rational calculations for declared
+coefficients, ranks and supported operator actions, together with numerical
+Hodge decomposition, propagation and model components. The repository also
+contains a query language, versioned storage, a browser application and tools
+for data ingestion and worker orchestration. The Core library can be
+installed independently of these application packages.
 
-Its boundary column is built from three components: which objects participate,
-which one is the distinguished head, and how the remainder share it. The first
-two are binary and the third is rational, so a relation of any arity has one
-exact column. An ordinary edge is the arity two case of that column, not a
-different kind of thing, and a branching relation is not a clique or a star.
-Grade records position in the boundary tower; arity records how many lower cells
-participate. They are separate readings. Adjacent boundaries satisfy
-`B_k B_(k+1) = 0`.
+## Installation
 
-Rational grade metrics then give boundary and coboundary fields, Hodge sectors,
-Green responses and moment tensors. These are built from exact image and kernel
-calculations, retained factors and rational solves. No eigendecomposition is
-required to obtain any of them. Where a field is carried numerically the
-arithmetic and residual contracts are stated, and the dense and spectral
-implementations remain as declared oracles rather than alternate primary
-representations.
-
-The repository contains five packages:
-
-- [Core](rexgraph/README.md): native mathematical carriers and kernels.
-- [RCQL](rcql/README.md): typed queries, plans and mutations.
-- [RCDB](rcdb/README.md): versioned native storage and publication contracts.
-- [System](system/README.md): API and observatory over RCQL.
-- [Agent](agent/README.md): workers, orchestration, connectors and model tooling.
-
-The five packages share version `1.3.1` and sibling dependency floors. The
-[I/O contracts](rexgraph/io/README.md#current-native-contracts) describe current
-publication, integrity, exact SQL and legacy read behavior.
-
-## Install
-
-Core requires NumPy 2.0 or newer. Source builds require a C/C++ compiler,
-OpenBLAS and pkg-config. Isolated pip builds resolve the declared Python build tools.
-
-Only git and curl are required on the host. The compilers, OpenBLAS, and Python
-come from a conda-forge environment, so the build does not depend on system
-BLAS packages whose names differ per distro.
-
-### One command (recommended)
-
-```bash
-sh install.sh
-```
-
-Run from the repo root. It detects the OS, package manager, and conda frontend
-(reusing mamba/micromamba/conda, or bootstrapping micromamba), creates the
-`rexgraph` environment from `environment.yml`, builds the Cython core from the
-repo root, and installs the agent. Override defaults through environment
-variables:
-
-```bash
-EXTRAS=standard sh install.sh             # agent profile to install (see the table below)
-RUN_CORE_TESTS=1 sh install.sh            # also run the core suite
-RUN_AGENT_TESTS=0 sh install.sh           # omit the default Agent suite
-NATIVE=1 sh install.sh                    # compile for the local CPU instruction set
-```
-
-The installer supplies test dependencies when a suite is requested. It runs
-checks from a neutral directory using the chosen interpreter, and exits with
-an error if a requested check fails. The core is a compiled wheel; the sibling
-packages are editable installations from this checkout.
-
-The conda path can bootstrap micromamba into your home directory. Site policies
-on HPC systems may require a different installation location or build node.
-
-### Manual (conda/mamba)
-
-```bash
-mamba env create -f environment.yml
-mamba activate rexgraph
-pip install -e ".[io,security]" --no-build-isolation   # rexgraph Cython core
-pip install -e "./rcdb[sql,objectstore,crypto]" # the store
-pip install -e ./rcql                                  # the query language
-pip install -e ./system                                # the observatory
-pip install -e ./agent                                 # agent + integrations
-```
-
-The order matters, and will until these are published, because pip resolves an
-unsatisfied requirement from PyPI where none of them is yet. It is not a single chain:
-the store and the query language each need only the core and are independent of each
-other, the observatory needs the query language, and the agent needs the store. Install Core first and Agent last.
-
-Minimal (core only, no I/O deps):
-
-```bash
-mamba env create -f environment-minimal.yml
-mamba activate rexgraph
-pip install -e . --no-build-isolation
-```
-
-### Manual (pip + system BLAS)
-
-```bash
-# Debian/Ubuntu
-sudo apt install libopenblas-dev pkg-config
-
-pip install .                                 # core only
-pip install ".[io]"                           # + zarr, h5py, pyarrow, sqlalchemy, pandas
-pip install ".[security]"                     # + cryptography, for sealed and signed bytes
-pip install ".[all]"                          # io + security
-pip install ".[scipy]"                        # explicit matrix exports and older analysis APIs
-pip install ".[oracles]"                      # spectral and matrix reference comparisons
-pip install -e ".[dev]" --no-build-isolation  # editable dev install
-
-# The store, the query language and the observatory. The agent REQUIRES the store, so
-# install it first; the other two are optional and rcql is needed only for the
-# observatory or the agent's [rcql] extra.
-pip install "./rcdb[sql,objectstore,crypto]"
-pip install ./rcql
-pip install ./system
-
-pip install ./agent                           # CLI + integrations, no server
-pip install "./agent[server]"                 # + web UI and API (light)
-pip install "./agent[standard]"               # full local deployment (no torch, no cloud drivers)
-pip install "./agent[ml]"                      # + LoRA fine-tuning and HuggingFace (torch)
-pip install "./agent[all]"                     # everything that runs on CPU (large)
-```
-
-### What to install
-
-The core (`.`) is only the relational complex math. Everything else is opt in.
-
-Core, RCQL and base RCDB do not require SciPy. Agent declares it for its current
-analysis pipeline. The [dependency profiles](DEPENDENCIES.md) distinguish
-native actions from the optional reference and older analysis APIs. Neither
-the base install nor Core `all` requires SciPy or selects a dense oracle.
-
-Core extras, from the repo root (e.g. `pip install ".[io]"`):
-
-| Extra | Adds | Weight |
-|-------|------|--------|
-| `io` | zarr, h5py, arrow/parquet, SQL loaders | light |
-| `all` | `io` and `security` | light |
-| `scipy` | explicit matrix exports and older sparse analysis | optional analysis |
-| `oracles` | SciPy for spectral and matrix reference comparisons | optional reference |
-| `nn` | torch ML substrate (GreensCochain, propagators, relational attention) | heavy (torch) |
-| `cuda` | GPU kernels (cupy) | heavy (CUDA toolkit) |
-| `dev` | test, lint, type check, build backend and SciPy references | contributors |
-
-Agent profiles, from the repo root (e.g. `pip install "./agent[standard]"`):
-
-| Profile | For | Weight |
-|---------|-----|--------|
-| `server` | web UI and API only | light |
-| `standard` | full local deployment: UI, schema tools, connectors, OCR, training export, YAML. No torch, no cloud drivers | medium |
-| `integrations` | LangChain, LangGraph, TrustGraph | medium |
-| `ml` | LoRA fine tuning and HuggingFace model analysis | heavy (torch) |
-| `warehouse` | Snowflake / BigQuery / Redshift / Databricks drivers | heavy |
-| `all` | everything that runs on CPU | large |
-
-The granular extras behind the profiles (`schema`, `connectors`, `ocr`, `ocr-paddle`, `training`, `finetune`, `huggingface`, `langchain`, `langgraph`, `trustgraph`, `mistral`, `oidc`, `vllm`) can be combined directly, e.g. `pip install "./agent[server,ocr,trustgraph]"`. GPU only extras (`vllm`, `ocr-got`) are never pulled by a profile.
-
-### Verify
-
-Run these from anywhere EXCEPT the repo root:
-
-```bash
-python -c "from rexgraph.graph import RexGraph; print('rexgraph OK')"
-python -c "from agent.pipeline import AnalysisPipeline; print('agent OK')"
-```
-
-The repo root holds a directory named `rexgraph`, and Python puts the working
-directory first on `sys.path`. So from there `import rexgraph` finds the source tree,
-which carries no compiled extensions, instead of what was installed, and fails inside
-`graph.py` on a null compiled module. It reads like a broken build and is a shadowed
-import. An editable install is immune, since its finder serves that same tree on
-purpose, which is why the failure only appears after a plain `pip install .`.
-
-For an editable development install, run the source suites from the repository:
-
-```bash
-pip install -e . --no-build-isolation      # if you have not already
-sh run_core_tests.sh -q                    # core
-python -m pytest agent/tests -q            # agent
-```
-
-For installed wheels, use the isolated runner. It loads the installed packages
-before collecting checkout tests and rejects runtime imports from the source tree.
-Use absolute paths and the interpreter of the environment being tested:
+On Linux or macOS, clone the repository and run:
 
 ```sh
-python -I /path/to/rexgraph/scripts/test_installed.py \
-  --package rexgraph --package rcql --package rcdb --package system --package agent -- \
-  /path/to/rexgraph/rexgraph/tests /path/to/rexgraph/rcql/tests \
-  /path/to/rexgraph/rcdb/tests /path/to/rexgraph/system/tests \
-  /path/to/rexgraph/agent/tests -q
-python -I /path/to/rexgraph/scripts/smoke_no_scipy.py --platform
-python -m pip check
+git clone https://github.com/sirtrott1/rexgraph.git
+cd rexgraph
+make install
+make serve
 ```
 
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000) for the Agent application.
+The server prints an admin token on first startup; use that token to sign in.
+If Make is unavailable, the same installation and launch sequence is:
 
-## Agent Platform
-
-Most work with RexGraph runs through the `agent` platform: the full application
-layer over the core. It is a FastAPI server and web UI, a multi agent hive that
-orchestrates language models and custom workers as a relational complex, a
-setups driven lifecycle (serve, train, build, deploy, finetune, ingest), local
-LLM inference through llama.cpp, connectors that turn any database into a
-relational complex, a builder for custom ML architectures, and the integrations
-(TrustGraph knowledge cores and rex RAG, HuggingFace, LangChain, LangGraph).
-
-```bash
-pip install "./agent[standard]"     # full local deployment
-rcf-server                          # server + web UI on http://127.0.0.1:8000
+```sh
+sh install.sh
+.venv/bin/python -I agent/run.py --no-browser
 ```
+
+The installer creates `.venv` in the checkout, obtains Python, a C compiler and
+OpenBLAS from `conda-forge`, and installs all five repository packages. It uses
+an existing micromamba, mamba or conda executable, or downloads micromamba to
+`~/.local/bin`. A new installation needs internet access, curl and tar, with Git
+to obtain the source. Windows users can run these commands in WSL.
+
+The standard installation includes the browser application, schema tools,
+common database connectors, PDF readers, Python OCR bindings and training data
+export. Installation compiles the Core extensions and checks numerical and exact
+operations, packaged UI assets and dependency consistency before reporting
+completion. Optional models, external data and service credentials are
+configured separately according to the features an application uses.
+
+### Installation profiles
+
+Every platform profile installs Core, RCDB, RCQL, System and Agent. Choose the
+profile for the work you plan to run:
+
+| Command | Purpose |
+| --- | --- |
+| `make install` | Browser application, analysis and common data tools |
+| `make install-core` | Mathematical library without the application packages |
+| `make install-server` | Platform with the Agent server dependencies |
+| `make install-ml` | Standard profile with PyTorch and Hugging Face model tools |
+| `make install-all` | Declared application extras, including cloud integrations and numerical baselines |
+| `make install-dev` | Editable source installation with the standard test dependencies |
+| `make install-dev-full` | Development installation with the optional CPU model, TensorFlow, molecular, analytics and integration test dependencies |
+
+The script accepts these profiles as `--profile core`, `server`, `standard`,
+`ml`, `all`, `dev` or `dev-full`. Additional extras can be selected without
+changing the main profile:
+
+```sh
+sh install.sh --profile core
+sh install.sh --extras analytics,molecules
+sh install.sh --extras trustgraph
+```
+
+Core, RCQL and base RCDB records work without SciPy. Agent's analysis pipeline
+and Core's numerical neural components include it in their dependency profiles.
+[DEPENDENCIES.md](DEPENDENCIES.md) describes the optional packages and
+what each profile enables.
+
+### System Python and custom locations
+
+The pip installer uses Python 3.10 through 3.13 and Python's virtual environment
+module. It requires Python headers, a C compiler and BLAS/LAPACK on the host.
+For Debian or Ubuntu, install the build requirements before running it:
+
+```sh
+sudo apt install python3-venv python3-dev build-essential libopenblas-dev pkg-config
+sh install.sh --installer pip
+```
+
+On macOS, this path requires Python and the Xcode command line tools; the build
+uses Apple Accelerate for BLAS/LAPACK. Select a different interpreter or
+installation directory when needed:
+
+```sh
+sh install.sh --installer pip --python python3.12 --venv /path/to/environment
+make serve VENV_DIR=/path/to/environment
+```
+
+### Optional runtimes
+
+Scanned documents require the Tesseract executable in addition to the Python
+OCR bindings. Install it with `sudo apt install tesseract-ocr` on Debian or
+Ubuntu, or `brew install tesseract` on macOS. Text files and PDFs with a text
+layer can be read without a GPU OCR service.
+
+Install GPU support with:
+
+```sh
+make install-gpu
+```
+
+The installer selects CUDA for NVIDIA GPUs or ROCm for AMD GPUs. AMD setup also
+installs the ROCm development tools and builds the custom HIP kernels for the
+detected GPU targets. ML profiles select CPU PyTorch on machines without a GPU.
+GPU drivers must already be installed and accessible to the terminal running setup.
+
+Vulkan sparse products, propagation and conjugate gradient solves are available
+on hardware with float64 shader support. Sparse coefficients remain on the
+device between products; vector updates run on the CPU. Select a backend when
+needed, including Vulkan on AMD or NVIDIA hardware:
+
+```sh
+make install-gpu GPU_BACKEND=vulkan
+make verify-gpu
+make verify-gpu GPU_BACKEND=vulkan
+```
+
+`make verify-gpu` compares calculations with CPU results and checks required
+native kernels. `make gpu-status` reports device access and runtime discovery.
+Use `GPU_BACKEND=cpu` with `make install-ml` to select CPU PyTorch explicitly.
+The script accepts the same selection as `sh install.sh --profile ml --gpu auto`.
+`TORCH_INDEX_URL`, `ROCM_INDEX_URL`, `HIPCC` and `HIP_ARCH` override package and
+compiler selection for an existing toolchain. `NATIVE_HIP=disabled` omits the
+custom HIP library. Builds without device access can set `GPU_VERIFY=0` and
+run `make verify-gpu` later in a terminal with GPU access.
+
+Local language model inference uses a separately installed `llama-server`
+executable and a local GGUF model file.
+[Agent](agent/README.md#local-inference) documents how to attach an existing
+service or start a managed one.
+
+## Getting started with the library
+
+Run `make python` to open the installed interpreter. An ordinary cycle can be
+constructed from its source and target indices:
 
 ```python
-# Orchestrate models and custom workers as a relational complex
-from agent.hive import Hive
-hive = Hive()
-hive.attach("worker", "http://127.0.0.1:8080", role="worker", specialties=["hodge"])
-hive.dispatch("What is the first Betti number of a torus?")   # routes + asks the best bee
+from rexgraph import RexGraph
 
-# Turn a knowledge graph into a relational complex and score a retrieval (rex-RAG)
-from agent.integrations.trustgraph_adapter import TrustGraphAdapter, SimpleTriple
-adapter = TrustGraphAdapter()
-rex, meta = adapter.from_triples([SimpleTriple("Drug_A", "treats", "Disease_X"),
-                                  SimpleTriple("Drug_A", "targets", "Protein_Y")])
-adapter.subgraph_confidence(rex, [0, 1, 2])   # structural trust of a retrieved subgraph
+network = RexGraph.from_graph([0, 1, 2], [1, 2, 0])
+print(network.nV, network.nE)       # 3 vertices and 3 relations
+print(tuple(network.betti))        # (1, 1, 0)
 ```
 
-Full platform documentation: **[agent/README.md](agent/README.md)**, covering the hive,
-the lifecycle, local inference, custom ML architectures, connectors, and the
-integrations in depth.
-
-The rest of this README covers the `rexgraph` core the platform is built on.
-
-
-## Quick Start
-
-### Core relational complex
+The Betti numbers count connected components, independent unfilled cycles and
+closed two dimensional surfaces in this example. The cycle has one connected
+component and one independent loop. Adding an explicit face that fills the
+loop reduces the first Betti number to zero:
 
 ```python
-from rexgraph.graph import RexGraph
 import numpy as np
 
-rex = RexGraph.from_simplicial(
-    sources=np.array([0, 0, 0, 1, 1, 2], dtype=np.int32),
-    targets=np.array([1, 2, 3, 2, 3, 3], dtype=np.int32),
-    triangles=np.array([[0,1,2],[0,1,3],[0,2,3],[1,2,3]], dtype=np.int32))
-
-rex.betti                          # (1, 0, 1)
-rex.chain_valid                    # True (B1 @ B2 = 0)
-rex.euler_characteristic           # 2
-
-# Relational Laplacian: RL = sum of trace-normalized typed Laplacians
-RL = rex.relational_laplacian      # f64[nE, nE], tr(RL) = nhats
-rex.nhats                          # 3 or 4 depending on copath availability
-
-# Structural character: where each edge sits on the simplex
-chi = rex.structural_character     # f64[nE, nhats], rows sum to 1
-phi = rex.vertex_character         # f64[nV, nhats]
-kappa = rex.coherence              # f64[nV] in [0, 1]
-
-# Per-channel mixing times and anisotropy
-times = rex.per_channel_mixing_times  # f64[nhats], ln(nE) / lambda_2 per hat
-
-# Hodge decomposition
-flow = np.ones(rex.nE, dtype=np.float64)
-grad, curl, harm = rex.hodge(flow)
-result = rex.hodge_full(flow)      # dict with energies, fractions, divergence, face curl
-
-# Interfacing vector: map source vertices through typed response operators
-iv_result = rex.interfacing_vector(
-    target_indices=np.array([0, 1], dtype=np.int32),
-    target_weights=np.array([1.0, 1.0]),
-    target_signal=flow)
-iv_result['sphere_pos']            # f64[4], unit sphere position (T, G, F, Sch)
-iv_result['confidence']            # {'flag': 'CONFIDENT', 'reasons': []}
-
-# Per-channel signal decomposition
-psc = rex.primal_signal_character(flow)  # f64[nhats], energy fractions summing to 1
-dipole = rex.face_void_dipole(flow)      # face vs void affinity
-
-# Cross-complex comparison
-from rexgraph.graph import cross_complex_bridge
-bridge = cross_complex_bridge(rex_A, rex_B, labels_A, labels_B)
-bridge['kappa']['correlation']     # Pearson correlation of coherence at shared vertices
-
-# Typed face selection: same-type triangles become faces, cross-type become voids
-rex_typed = rex.typed_face_selection(edge_type_labels)
-
-# Character-based filtration: remove edges by decreasing chi, track Betti
-filt = rex.quotient_filtration(channel=0, n_steps=20)
-filt['transition_index']           # step with largest beta_1 drop
-
-# Linkage complex from fiber bundle similarity
-rex_link = rex.linkage_complex(sfb_threshold=0.85)
-
-# Spectral
-evals = rex.eigenvalues_L0         # vertex Laplacian spectrum
-fiedler = rex.fiedler_vector_L0    # algebraic connectivity eigenvector
-alpha_G, alpha_T = rex.coupling_constants
-
-# Dirac operator on the full graded complex (nV + nE + nF) x (nV + nE + nF)
-D = rex.dirac_operator
-d_evals = rex.dirac_eigenvalues
-
-# Field operator on (E, F): coupled edge-face dynamics
-M, g, is_psd = rex.field_operator
-f_evals, f_evecs, freqs = rex.field_eigen
-modes = rex.classify_modes()       # edge / face / resonant per mode
-
-# Fiber bundle similarity between vertices
-S_phi = rex.phi_similarity         # f64[nV, nV] from vertex character
-S_fb = rex.fiber_similarity        # f64[nV, nV] combined fiber + star
-
-# Void spectral theory
-vc = rex.void_complex              # Bvoid, Lvoid, eta, chi_void, fills_beta
-
-# Persistent homology
-fv, fe, ff = rex.filtration(kind="dimension")
-dgm = rex.persistence(fv, fe, ff)
-barcodes = rex.persistence_barcodes(dgm, dim=1)
-H = rex.persistence_entropy(barcodes)
-
-# Signal propagation
-f_E = np.zeros(rex.nE, dtype=np.float64)
-f_E[0] = 1.0
-result = rex.analyze_perturbation(f_E, times=np.linspace(0, 5, 50))
-
-# Quotient complex
-sub, v_map, e_map = rex.subgraph(np.array([1,1,1,0,0,0], dtype=bool))
-info = rex.quotient_analysis(v_mask, e_mask, f_mask, signal=flow)
-
-# Query engine
-imputed = rex.impute(observed_signal, observed_mask)
-diag = rex.explain(dim=1, idx=3)
-score = rex.propagate(source_signal, target_signal)
-
-# Dynamics
-diffused = rex.evolve_markov(flow, dim=1, t=1.0)
-psi = rex.wave_state(dim=1)
-outcome, collapsed = rex.measure(psi, dim=1)
-
-# Dashboard
-from rexgraph.analysis import analyze
-data = analyze(rex, vertex_labels=["A","B","C","D"])
-```
-
-### Eigen free / sparse computation
-
-Native actions and sparse readings avoid dense eigensolves. Explicit spectral
-properties use the declared oracle path. The sparse modules
-expose the same operators directly, for complexes too large to densify.
-
-```python
-from rexgraph import harmonic_sparse, scale_propagator as sp, sparse_character
-
-rex.betti                                  # exact integer rank, never a spectrum
-
-# Combinatorial harmonic basis of ker(L1): spanning-tree cycle basis, no eigh
-H = harmonic_sparse.harmonic_basis(rex)    # sparse nE x dim_H
-
-# Matrix-function propagators via Chebyshev sparse mat-vecs
-heat = sp.heat_apply(rex.L1_sparse, flow, t=0.5)          # e^{-tL} flow
-psi  = sp.schrodinger_apply(rex.L1_sparse, flow, t=0.5)   # e^{-iLt} flow (complex)
-
-# Green's diagonal via block conjugate gradient; character via block-CG + LSQR
-diag = sp.greens_diagonal(rex._rl4_sparse)                # diag(RL^-1)
-char = sparse_character.compute_sparse_character(rex)     # chi / phi / kappa, scale-free
-```
-
-### Compute backends (CPU / GPU / multi core / multi GPU)
-
-```python
-from rexgraph import compute
-
-compute.recommended_backend()              # 'cpu' | 'openmp' | 'cuda' | 'rocm' | 'mps'
-compute.gpu_count()                        # usable GPUs (REXGRAPH_MAX_GPUS-capped)
-compute.set_default_backend("rocm")        # or set REXGRAPH_BACKEND
-
-# The propagators take an explicit backend; large column blocks tile across GPUs,
-# and the CPU fan-out caps inner BLAS so it does not oversubscribe cores.
-heat = sp.heat_apply(rex.L1_sparse, flow, t=0.5, backend="cuda")
-```
-
-### Differentiable substrate (`rexgraph.nn`)
-
-```python
-import rexgraph.nn as rnn
-
-attn, name = rnn.build_attention(None, d=64, n_head=4)  # relational (propagator) attention
-opt, label = rnn.make_optimizer("auto", attn, attn.parameters())
-# "auto" is the router: GreensCochain for a relational-native model whose parameters are
-# cochains on a complex, plain Adam for a standard feature-space model like this one.
-# HodgeAdam / HodgeSGD remain reachable by name (method="hodge"/"hodgesgd") as back-compat.
-dev = rnn.pick_device("auto")              # resolves through the compute backend
-```
-
-### Auto detect any input format
-
-```python
-from agent.auto import auto_rex
-
-rex = auto_rex("edges.csv")                # CSV file
-rex = auto_rex("graph.json")               # JSON file
-rex = auto_rex(adjacency_matrix)           # numpy array
-rex = auto_rex(dataframe)                  # pandas DataFrame
-rex = auto_rex("Proteins regulate genes.") # raw text
-```
-
-### Structural health diagnostic
-
-```python
-from agent.pipeline import AnalysisPipeline
-
-pipe = AnalysisPipeline(rex)
-result = pipe.run(depth="standard")
-hodge = result["hodge"]
-
-hodge["dim_H"]                     # oscillatory modes (beta_1)
-hodge["health_ratio"]              # frustration / coparticipation
-hodge["frustration_total"]         # harmonic tension from topology
-hodge["coparticipation_total"]     # harmonic support from geometry
-hodge["sigma_asymmetry_per_edge"]  # rigid vs adaptive per edge
-hodge["harmonic_modes"]            # top edges per mode
-```
-
-
-## Structural Diagnostics
-
-The analysis pipeline computes per edge and aggregate metrics from
-the Hodge decomposition and the four channel structure.
-
-Every edge signal decomposes uniquely into three orthogonal components:
-
-**Gradient**: hierarchical structure determined by B_1. Face independent.
-Does not change when faces are added or removed. Measures directed
-chain strength.
-
-**Curl**: closed feedback loops determined by B_2. Each face is a triple
-of entities where all three pairwise relationships form a stable cycle.
-
-**Harmonic**: conserved relational flow on unfilled cycles. Measures
-unresolved structural tension.
-
-Derived metrics:
-
-**dim(H)**: number of independent oscillatory modes.
-
-**Frustration**: harmonic content projected onto the topology channel.
-Tension that originates from graph topology. Cannot be reduced by
-adding faces.
-
-**Coparticipation**: harmonic content projected onto the geometry
-channel. Measures how well the current face structure supports
-relational dynamics.
-
-**Health ratio**: frustration / coparticipation. Above 1.0 means the
-structure works against itself.
-
-**Sigma asymmetry**: per edge measure of topological rigidity (positive)
-vs responsiveness to face changes (negative).
-
-
-## Input Formats
-
-| Format | Input | Notes |
-|--------|-------|-------|
-| TrustGraph flow | `adapter.from_flow("default")` | connected mode |
-| TrustGraph core | `adapter.analyze_core("id")` | loads and analyzes |
-| Triple list | `adapter.from_triples([...])` | standalone, no server |
-| CSV string/file | `auto_rex("edges.csv")` | auto detects columns |
-| JSON string/file | `auto_rex("graph.json")` | edge list or adjacency |
-| Numpy matrix | `auto_rex(array)` | adjacency or feature matrix |
-| Pandas DataFrame | `auto_rex(df)` | source/target/weight columns |
-| Raw text | `auto_rex("any text")` | built in tokenizer, no deps |
-
-
-## TrustGraph Integration
-
-Full documentation: [agent/README.md](agent/README.md)
-
-Requires `trustgraph-base>=2.4.0` for connected mode. Standalone mode
-(analyzing triples directly) has no additional dependencies.
-
-### Health snapshot
-
-```python
-from agent.integrations.trustgraph_adapter import TrustGraphAdapter
-
-adapter = TrustGraphAdapter(url="http://localhost:8088/")
-snap = adapter.health_snapshot(flow="production")
-# {'status': 'healthy', 'dim_H': 3, 'health_ratio': 0.82,
-#  'cost_multiplier': 1.07, 'nV': 450, 'nE': 1200}
-```
-
-### Query assessment
-
-```python
-result = adapter.assess_query(
-    ["Metformin", "mTOR", "Cancer"],
-    flow="default",
+filled = RexGraph.from_simplicial(
+    sources=np.array([0, 1, 2], dtype=np.int32),
+    targets=np.array([1, 2, 0], dtype=np.int32),
+    triangles=np.array([[0, 1, 2]], dtype=np.int32),
 )
-# {'entities_found': ['Metformin', 'mTOR', 'Cancer'],
-#  'health_ratio': 0.82, 'adjusted_tokens': 175,
-#  'per_entity': {'Metformin': {'connections': 4, 'local_harmonic_fraction': 0.55}, ...}}
+print(tuple(filled.betti))          # (1, 0, 0)
+print(filled.chain_valid)          # True
 ```
 
-### Context core health
+A relation with several participants also occupies one cell. Its participant
+shares and metric weight can be declared as fractions, so those inputs remain
+exact:
 
 ```python
-health = adapter.analyze_core("biomedical-v3")
-print(health["health_summary"])
-```
+from fractions import Fraction
+from rexgraph import Relations, VertexTable
 
-### Flow comparison
-
-```python
-comparison = adapter.compare_flows(["v1", "v2", "v3"])
-print(comparison["comparison"]["most_stable"])
-```
-
-### Version tracking
-
-```python
-evolution = adapter.track_evolution(
-    snapshots=["core-v1", "core-v2", "core-v3"]
+relations = Relations.from_supports(
+    [[0, 1, 2]],
+    vertices=VertexTable(("head", "left", "right")),
+    shares=[0, Fraction(1, 3), Fraction(2, 3)],
+    weights=[Fraction(2, 5)],
+    relation_ids=["measurement"],
 )
-print(evolution["trend"])  # "stabilizing", "fragmenting", or "stable"
+branch = RexGraph.from_relations(relations)
+print(branch.nV, branch.nE)         # 3 vertices and 1 relation
 ```
 
-### MCP tools
+Use `.venv/bin/python -I example.py` to run a saved example against the installed
+packages. The isolated interpreter prevents the checkout's source directories
+from shadowing the compiled installation. Editable installations are provided
+by the development profiles.
+
+## Loading and processing data
+
+RexGraph separates reading a file from declaring what its fields represent.
+For an edge table, declare which columns identify participants and how numeric
+weights are interpreted. Save the following table as `relations.csv`:
+
+```csv
+source,target,weight
+A,B,1.0
+B,C,0.5
+C,A,0.25
+```
+
+The declaration below treats the participant labels as strings and the weights
+as exact decimal values. `construct` creates one relation per row; a weight of
+`0.5` is retained as the fraction `1/2`.
 
 ```python
-tools = adapter.as_mcp_tool_definitions()
-# 4 tools: analyze_flow, subgraph_confidence, predict_cost, compare_flows
+from rexgraph import RelationSpec, NumberRule, ValueRules
+from rexgraph.construction import construct
+from rexgraph.io.readers import read_batches
+from rexgraph.io.records import RecordField, RecordSchema
+
+schema = RecordSchema((
+    RecordField("source", "string"),
+    RecordField("target", "string"),
+    RecordField("weight", "number", rules=ValueRules(NumberRule.DECIMAL_EXACT)),
+))
+records = read_batches("relations.csv", reader="csv", schema=schema)
+relations = construct(records, RelationSpec("pair", ("source", "target"), weight="weight"))
+network = RexGraph.from_relations(relations)
+print(network.relations.weight.values()[1])  # 1/2
 ```
 
-### Standalone (no TrustGraph server)
+The declared readers also support JSON, JSONL, Arrow IPC, Parquet, SQLite and
+XLSX. A reusable dataset declaration can retain the schema, relation mapping
+and source options for later reads. Native graph files retain the complete
+complex, while a table describes the fields selected for import or export.
+[I/O documentation](rexgraph/io/README.md) covers the format contracts and
+streaming interfaces.
+
+Agent provides `auto_rex` for common CSV, JSON, array, DataFrame and text inputs.
+It chooses an adapter using the input type and recognizable fields. For
+numerical tables or text, the selected adapter determines which relationships
+are constructed; the source table alone does not specify that interpretation.
+Use a declared schema and mapping when the application must control it.
+
+## Analysis, queries and storage
+
+Hodge decomposition separates a signal on relations into a gradient component
+from vertex potentials, a curl component supported by filled boundaries, and a
+harmonic component in the Hodge kernel. For a declared complex, the components
+reconstruct the input signal:
 
 ```python
-from agent.integrations.trustgraph_adapter import SimpleTriple
-
-adapter = TrustGraphAdapter()
-triples = [
-    SimpleTriple("Drug_A", "treats", "Disease_X"),
-    SimpleTriple("Drug_A", "targets", "Protein_Y"),
-    SimpleTriple("Protein_Y", "involved_in", "Disease_X"),
-]
-rex, meta = adapter.from_triples(triples)
-snap = adapter.health_snapshot(rex=rex, meta=meta)
-result = adapter.assess_query(["Drug_A", "Disease_X"], rex=rex, meta=meta)
+signal = np.array([1.0, 0.0, -1.0])
+gradient, curl, harmonic = network.hodge(signal)
+assert np.allclose(gradient + curl + harmonic, signal)
 ```
 
+Core also provides exact homology, weighted operators, Green responses,
+persistence, temporal identities and comparisons between complexes. Integer
+and rational calculations preserve their coefficients; numerical solvers use
+the tolerance and accuracy checks specified by their APIs. The
+[Core guide](rexgraph/README.md) provides the API reference and examples.
 
-## HuggingFace Integration
-
-Analyze transformer attention patterns against the relational axioms.
-Runs inference, captures attention at each layer, builds a relational
-complex from each, and measures chain condition violation, equiweight
-deviation, and channel specialization across the model's depth.
-
-Requires `torch` and `transformers`: `pip install "rexgraph-agent[huggingface]"`
+RCQL evaluates typed queries against explicitly supplied data. This query
+returns the relation count and the first Betti number:
 
 ```python
-from agent.integrations.huggingface_analyzer import analyze_transformer
+from rcql import run
 
-report = analyze_transformer(
-    model_name="mistralai/Mistral-7B-v0.1",
-    text="The cat sat on the mat.",
-    device="cuda",
-)
-
-report["per_layer_chain_violation"]   # ||B1 B2|| per layer
-report["equiweight_deviation"]        # Dirac even/odd balance per layer
-report["channel_specialization"]      # which channels each head uses
+result = run("FROM $network RETURN COUNT(CELLS(1)), BETTI(1)", sources={"network": network})
+print(result.values)              # (3, 1)
 ```
 
-For pre extracted attention weights (no model loading needed):
+RCDB stores complexes and typed records with versions and transaction history.
+A local store can save the complex and read back its selected version:
 
 ```python
-from agent.integrations.huggingface_analyzer import quick_attention_analysis
+from contextlib import closing
+from rcdb import LocalStore
 
-result = quick_attention_analysis(
-    attention_matrix,                  # (seq_len, seq_len) numpy array
-    token_labels=["The", "cat", ...],
-    threshold=0.05,
-)
-result["betti"]                        # topological structure of attention
-result["chi_T"]                        # mean topology channel strength
-result["kappa_mean"]                   # coherence of attention pattern
+with closing(LocalStore("records")) as store:
+    record = store.put("network", network, analytics=False)
+    restored = store.get_version("network", record.version)
+    print(restored.nE)            # 3
 ```
 
-Individual functions for targeted measurements:
+For a portable graph file, use `save_rcbd("network.rcbd", network)` and
+`load_rcbd("network.rcbd")` from `rexgraph.io`. RCBD, safetensors, HDF5 and Zarr
+retain native state; CSV and JSON imports follow their declared source schemas.
 
-```python
-from agent.integrations.huggingface_analyzer import (
-    extract_attention_rex,       # attention matrix -> edge list for RexGraph
-    measure_chain_condition,     # ||B1 B2|| on any boundary pair
-    measure_equiweight,          # Dirac anticommutator deviation
-)
+## Applications and capabilities
+
+The Agent browser application exposes uploads, analysis, stored records,
+connectors and configured model tools. Its Python API can run the same analysis
+pipeline and register workers with capabilities such as prediction, embedding,
+analysis or transformation. Language model workers can be attached through an
+OpenAI compatible endpoint. A worker can also be an ordinary Python callable.
+
+| Package or feature | What it provides | Guide |
+| --- | --- | --- |
+| Core | Construction, homology, Hodge analysis, fields and propagation | [Core](rexgraph/README.md) |
+| RCQL | Typed queries, plans, selections and mutations | [RCQL](rcql/README.md) |
+| RCDB | Versioned storage, record queries and transfer | [RCDB](rcdb/README.md) |
+| System | Browser inspection and query results over registered sources | [System](system/README.md) |
+| Agent | Application server, analysis pipelines and worker orchestration | [Agent](agent/README.md) |
+| Connectors | Structural reads from databases and other configured sources | [Connectors](agent/agent/connectors/README.md) |
+| Models | PyTorch cochain models and assembled feature models | [Core models](rexgraph/flow/README.md), [Agent models](agent/agent/models/README.md) |
+
+System provides a separate browser interface for inspecting a saved complex
+and running RCQL queries:
+
+```sh
+make system ARGS='--source main=network.rcbd'
 ```
 
+Open [http://127.0.0.1:8010](http://127.0.0.1:8010). The
+[System guide](system/README.md) describes registered datasets and file catalogs.
 
-## LangChain Integration
+### Data and environment configuration
 
-Four LangChain tools that give any agent access to structural
-analysis during reasoning.
+Run `make doctor` to list optional Python dependencies, external executables
+and configured lexical resources. This reports installation status; `make verify`
+checks compiled operators, packaged UI assets and dependency consistency.
 
-Requires `langchain-core`: `pip install "rexgraph-agent[langchain]"`
+WordNet, Roget and Wiktionary are optional data sources for lexical answerers.
+Set `REXGRAPH_LEXICAL_DIR` to the directory containing those resources before
+starting Agent, or supply file paths directly to the answerer constructors.
+Individual overrides are `REXGRAPH_WORDNET`, `REXGRAPH_ROGET` and
+`REXGRAPH_WIKTIONARY`. The default location is
+`~/.local/share/rexgraph/lexical`, under `XDG_DATA_HOME` when configured.
+Existing data in the former checkout location remains addressable.
 
-```python
-from agent.integrations.langchain_tools import get_rex_tools
+Agent stores reusable analysis results under `~/.cache/rexgraph`, or under
+`XDG_CACHE_HOME` when configured. `REXGRAPH_CACHE_DIR` selects another directory,
+and `REXGRAPH_NO_CACHE=1` disables result caching. See the
+[Agent guide](agent/README.md#configuration-and-cache) for model locations,
+configuration files and cache retention settings.
 
-tools = get_rex_tools(rex)
-# Returns: [RexConfidenceTool, RexAnalyzeTool, RexHodgeTool, RexExplainTool]
+Application data, model files and live service credentials are supplied by the
+user. The installer installs software dependencies; it does not obtain datasets,
+load model weights or establish connections to databases.
 
-# Use with any LangChain agent
-from langchain.agents import create_tool_calling_agent
-agent = create_tool_calling_agent(llm, tools, prompt)
+## Development and testing
+
+```sh
+make install-dev
+make verify
+make test
 ```
 
-**RexConfidenceTool**: Check structural confidence before answering.
-Returns void_affinity, dipole_ratio, chain condition violation, and
-coherence. If void_affinity > 0.5 or kappa_mean < 0.3, the structure
-has gaps in that region and the agent should qualify its response.
+Use `make install-dev-full` to exercise the optional CPU feature tests as well.
+Tests use generated graph, document and lexical fixtures in temporary storage.
+They do not require dictionaries or model files from a user's installation.
+GPU tests require compatible devices and runtimes. Read skipped tests alongside
+their reported reasons:
 
-**RexAnalyzeTool**: Full structural analysis on demand. Returns
-the Hodge decomposition percentages, Betti numbers, and channel
-character.
-
-**RexHodgeTool**: Decompose a specific signal into gradient, curl,
-and harmonic components. Reports the energy fraction in each.
-
-**RexExplainTool**: Explain a specific topological feature (a Betti
-generator, a void, a persistent cycle) in terms of which edges
-and vertices participate.
-
-
-## LangGraph Integration
-
-Model an agent's state machine as a relational complex. Build
-incrementally as the agent runs. Query the structural diagnostics
-at any point to detect behavioral issues.
-
-Requires `langgraph`: `pip install "rexgraph-agent[langgraph]"`
-
-```python
-from agent.integrations.langgraph_rex import RexStateGraph
-
-rsg = RexStateGraph()
-
-# Build the state graph as the agent runs
-rsg.add_state("retrieve", metadata={"type": "action"})
-rsg.add_state("reason", metadata={"type": "thinking"})
-rsg.add_state("answer", metadata={"type": "output"})
-rsg.add_transition("retrieve", "reason", weight=1.0)
-rsg.add_transition("reason", "answer", weight=1.0)
-rsg.add_transition("reason", "retrieve", weight=0.5)  # retry loop
-rsg.log_visit("retrieve")
-rsg.log_visit("reason")
-
-# Structural analysis of agent behavior
-analysis = rsg.analyze()
-analysis["hodge"]                      # gradient/curl/harmonic of execution
-
-# Should the agent continue or stop?
-decision = rsg.should_continue(harmonic_threshold=0.4)
-decision["recommendation"]             # "continue", "stop", or "caution"
-decision["reason"]                     # why (based on harmonic content)
-
-# Detect behavioral cycles
-cycles = rsg.detect_cycles()
-cycles["n_cycles"]                     # number of cyclic patterns
-cycles["longest_cycle"]                # which states form the longest loop
-
-# Decompose a specific execution path
-path_info = rsg.decompose_path(["retrieve", "reason", "retrieve", "reason", "answer"])
-path_info["pct_harmonic"]              # how much of the path is oscillatory
-
-# Channel profile: what kind of computation is the agent doing?
-profile = rsg.channel_profile()
-profile["dominant_channel"]            # "T" (logical), "G" (associative), etc.
-
-# Use as a LangGraph conditional edge
-checker = rsg.as_langgraph_checker()
-gate = rsg.as_langgraph_confidence_gate("reason", "answer")
+```sh
+make test TEST_ARGS='-rs'
 ```
 
-The Hodge decomposition of the agent's state graph reveals:
-gradient content means the agent is making progress (directed flow
-from input to output), curl content means the agent is in a stable
-feedback loop (retrieval reasoning cycles that converge), and
-harmonic content means the agent is stuck in an unresolved
-oscillation (retrying without progress).
+The package targets are `test-rexgraph`, `test-agent`, `test-rcdb`, `test-rcql`
+and `test-system`. Pass pytest options through `TEST_ARGS`, for example
+`make test-rexgraph TEST_ARGS='-k boundary'`. The default compiler concurrency is
+`BUILD_JOBS=2`; increase it only when the build machine has enough memory.
 
+Regular installations need to be reinstalled after changing a checkout.
+Editable installations use current Python source and rebuild changed Cython
+extensions on import. `make hpc-setup` uses the shared installer and generates
+SLURM templates; configure the cluster account, partition and paths before
+submitting a job.
 
-## I/O
+`make clean` removes Python bytecode and pytest caches from the checkout.
+It preserves environments, editable build trees, package metadata and downloaded
+models. Use `REXGRAPH_NO_CACHE=1` to run without reusing Agent analysis results.
 
-Native storage, table interchange and source imports, with automatic format detection on load.
-Bundle (.rcbd) requires zero dependencies beyond numpy. Bundles written before the
-rename carry a `.rex` suffix and are still read.
+## Documentation and support
 
-```python
-from rexgraph.io import load_rcbf, save_rcbd, load_rcbd, save_zarr, load_zarr, save_hdf5, load_hdf5
-from rexgraph.io.json_loader import load_json
-from rexgraph.io.csv_loader import load_edge_csv
-
-save_rcbd("graph.rcbd", rex)                  # portable bundle
-save_zarr("graph.zarr", rex, cache="all")     # chunked, compressed
-save_hdf5("graph.h5", rex, cache="all")       # single file
-
-rex = load_rcbd("graph.rcbd")
-rex = load_rcbf("relations.rcbf")               # validated binary relation stream
-rex = load_zarr("graph.zarr")
-rex = load_hdf5("graph.h5")
-rex = load_json("graph.json")                 # auto-detects format
-rex = load_edge_csv("edges.csv")              # column classification
-```
-
-| Format | Extension | Dependencies | Notes |
-|--------|-----------|-------------|-------|
-| Bundle | .rcbd | none | portable, memory mappable, zero dep (legacy `.rex` still read) |
-| RCBF stream | .rcbf | none | sequential relational complex stream, read only import |
-| Zarr | .zarr | zarr | chunked, compressed, cloud ready |
-| HDF5 | .h5 | h5py | single file, HDF5 filters |
-| Arrow IPC | .arrow | pyarrow | zero copy interop with Polars/DuckDB |
-| Parquet | .parquet | pyarrow | columnar per-edge/vertex/face tables |
-| SQL | any DB | sqlalchemy, pandas | database storage |
-| JSON | .json | none | Cytoscape, NetworkX, edge list, adjacency |
-| CSV | .csv | none | edge lists with automatic column classification |
-
-RCBD, safetensors, HDF5 and Zarr preserve native RexGraph and TemporalRex state.
-HDF5 and Zarr also store derived cache groups. Table exports and JSON/CSV imports
-have their own schemas; they are not interchangeable with a complete native snapshot.
-
-### Provenance and integrity
-
-`rexgraph.partition_state.build_rex_partition(rex, edge_mask)` keeps the structural
-projection default. It preserves complete boundaries, exact declared heads and
-shares, metric presence, signs and identities. Pass `carried_state="all"` to carry
-application metadata, signals, retained fields/sections/models/spans, nested
-graphs and sectionings through their registered transport hooks. Explicit upper
-grade masks select the requested cofaces while retaining their full downward
-closure. `partition_from_policy` accepts the same option in its state bound
-policy mapping and binds it into the policy digest.
-
-Twelve further modules in `rexgraph/io/` answer a different question than the format
-loaders do. A format asks how bytes are laid out. These ask what a payload is, whether it
-still is that, and where it came from. They are pure tensor plus bytes with no service
-dependencies, so the same code runs in a notebook and in a server.
-
-```python
-from rexgraph.io.catalog import object_digest
-from rexgraph.io.security import Ed25519Signer, StaticKeyProvider, encrypt_bytes, decrypt_bytes
-from rexgraph.io.transport import pack, unpack
-from rexgraph.io.transition import TransitionCommit
-from rexgraph.io.commit import CommitLink
-
-keys = StaticKeyProvider({"k1": key_bytes})
-signer = Ed25519Signer.generate("alice")
-
-before = object_digest(rex)                            # identity, over the whole object
-sealed = encrypt_bytes(b"payload", key_id="k1", keys=keys)
-frame = pack(sealed, object_type="rex")                # what crosses a boundary
-payload, meta = unpack(frame)                          # and what comes back
-decrypt_bytes(payload, keys=keys)
-
-change = TransitionCommit(before, delta, after, tx_time, actor="alice").signed(signer)
-link = CommitLink(change.digest, parent_digest).signed(signer)   # its place in a lineage
-link.verify(signer.verifier())                         # whether THIS link's signature holds
-```
-
-`object_digest` is the whole object API. `manifest_digest` and `canonical_json` digest
-JSON safe metadata, and a RexGraph is not JSON safe, so they are not interchangeable.
-`CommitLink.verify` authenticates one link's signature and signer, not the chain: parent
-continuity and endpoint agreement are checked when `mutation` and `replication` apply a
-chain, which is where a broken lineage is actually caught.
-
-| Module | Answers |
-|--------|---------|
-| `manifest` | what canonical bytes JSON safe metadata digests to |
-| `security` | whether a payload is sealed, and who signed it |
-| `transition`, `commit` | what one change was, and its place in a chain |
-| `transport` | what a frame is, without asking the reader to guess |
-| `temporal_state` | how a TemporalRex verifies as tensors |
-| `catalog` | what a file is, and what an object is |
-| `mutation` | what a change was, bound to both endpoints |
-| `privacy` | pseudonyms that do not join across scopes |
-| `export` | a Parquet artifact carrying its own identity |
-| `partition_state` | a sub complex that is still a complex |
-| `replication` | applying a chain somewhere else |
-
-Full reference with signatures and the digest and signature model:
-[`rexgraph/io/README.md`](rexgraph/io/README.md#manifest-canonical-bytes-for-a-digest).
-
-
-## Architecture
-
-### Five distributions
-
-The repository builds five packages, and the split is a dependency rule rather than
-filing. Nothing lower imports anything higher, which is what lets each be installed
-and reasoned about on its own, as a separate distribution.
-
-| distribution | is | depends on |
-|---|---|---|
-| `rexgraph` | the relational complex library, its kernels and its IO | nothing in this repo |
-| `rexgraph-rcdb` | a database of complexes: stores, index, protected search | `rexgraph` |
-| `rexgraph-rcql` | the query language: parser, optimizer, executor, capabilities | `rexgraph` |
-| `rexgraph-system` | the observatory, reading live values through RCQL | `rexgraph`, `rexgraph-rcql` |
-| `rexgraph-agent` | the platform: server, pipeline, hive, couriers | `rexgraph`, `rexgraph-rcdb` |
-
-RCDB does not import the agent. What the agent adds to a store, the activity feed,
-request scoping, metadata privacy and similarity scoring, arrives through
-`rcdb.configure_hooks`, which the agent calls when it is imported. With none of them
-set the store still stores. RCQL likewise never imports a store: it evaluates against
-a source it is handed, which is what lets the same store be exposed to one caller as
-records without identity and to another as history it may name.
-
-The five ship together and their formats depend on each other, so every
-inter distribution requirement floors at the current release. `install.sh` installs
-all five from this repo in dependency order.
-
-### Inside the core
-
-Two layers sit under the `RexGraph` object. The **kernels** in `rexgraph.core`
-build the structures and are optimized to run on sparse operators. The
-**eigen free modules** in `rexgraph` compute the spectral quantities without a
-dense eigensolve. Memory and runtime still depend on incidence, fill and the
-requested output. Sparse is the default
-everywhere: `RexGraph` does not build the dense relational bundle unless it is
-asked for. Dense is materialized on demand for the low level dense kernels, and
-it is the exact reference the sparse path is tested against. `rexgraph.compute`
-dispatches across CPU, GPU, or multiple GPUs.
-
-```
-rexgraph/                     the relational complex library
-    graph.py                  RexGraph and TemporalRex; the single object, composes everything
-    analysis.py               dashboard analysis pipeline
-    rextypes.py               NamedTuples and enumerations
-    compute.py                backend dispatch (CPU / OpenMP / CUDA / ROCm / MPS), multi-GPU, multi-core
-
-    # eigen-free / scale-free layer (the sparse spectral path)
-    scale_propagator.py       Chebyshev matrix-function propagators (heat/wave/schrodinger), block-CG Green's
-    sparse_character.py       scale-free character / coherence (chi / phi / kappa) via block-CG + LSQR
-    harmonic_sparse.py        combinatorial harmonic basis and low-rank projector
-    graded_boundary.py        graded mixed-arity boundary builder, exact integer rank, union-find Betti
-    field_propagator.py       matrix-free coupled (edge, face) field evolution
-    dirac_propagator.py       sparse matrix-free graded Dirac operator
-    sparse_interfacing.py     eigen-free interfacing-vector bundle
-    dense_matrix.py           dense materialization and dense-only linear algebra
-
-    core/                     39 Cython kernels (BLAS/LAPACK); full per-kernel reference in core/README.md
-        boundaries, Laplacians, relational/typed channels, structural character, Hodge, fiber and
-        linkage, spectral layout, field, wave, Dirac, transition dynamics, perturbation signals,
-        persistence, quotients and relative homology, voids, curvature, temporal lifecycle, standard
-        graph algorithms, joins, query, interfacing, cross-complex comparison, and channel
-        Lagrangian readings. Kernels are independent (composed only in graph.py) and optimized for sparse
-        operators; the dense kernel path also serves as the exact reference for the eigen-free layer.
-
-    io/                       storage and serialization
-        bundle (.rcbd), Zarr, HDF5, Arrow/IPC, Parquet, SQL, JSON, CSV, SafeTensors; format auto-detection
-
-
-agent/
-    auto.py               Input auto-detection and dispatch
-    pipeline.py           AnalysisPipeline (Hodge + harmonic diagnostics)
-    engine.py             DecisionEngine (interpretation + stability assessment)
-    session.py            Stateful analysis sessions
-
-    adapters/
-        text.py           Built-in text adapter (no external NLP deps)
-        edge_list.py      Edge list adapter
-        feature_matrix.py Feature matrix adapter
-
-    integrations/
-        trustgraph_adapter.py    TrustGraph (triples, flows, cores, MCP tools)
-        trustgraph_pipeline.py   End-to-end TrustGraph pipeline
-        huggingface_analyzer.py  Transformer attention analysis
-        langgraph_rex.py         LangGraph state machine analysis
-        langchain_tools.py       LangChain tool wrappers
-        vllm_router.py           vLLM routing integration
-
-    server/               FastAPI backend
-    ui/                   Visualization engine
-```
-
-All Cython modules are independent. No Cython module imports another.
-`RexGraph` exposes everything through `@cached_property` accessors
-that lazily compute and cache results.
-
-
-## Testing
-
-```bash
-python -m pytest rexgraph/tests/                    # rexgraph tests
-python -m pytest rexgraph/tests/ -m "not slow"      # skip scale tests
-python -m pytest rexgraph/tests/test_integration.py  # integration suite
-python -m pytest agent/tests/                        # agent tests
-```
-
-
-## Compute backends
-
-The eigen free tower is matrix free, so the same operators run on any backend
-through the `rexgraph.compute` dispatch layer. It selects a backend
-automatically (`recommended_backend()`), size gates GPU work, tiles large column
-blocks across multiple GPUs, fans CPU work across cores without oversubscribing
-inner BLAS, and always falls back to CPU. No code change is needed to move
-between one core, many cores, an integrated GPU, or several discrete GPUs.
-
-```python
-from rexgraph import compute
-compute.recommended_backend()          # 'cpu' | 'openmp' | 'cuda' | 'rocm' | 'mps'
-compute.set_default_backend("rocm")    # or export REXGRAPH_BACKEND=rocm
-# per-call:  sp.heat_apply(L, x, t, backend="cuda")   /   REXGRAPH_MAX_GPUS caps devices
-```
-
-GPU acceleration works through a torch backend (CUDA or ROCm) out of the box.
-A separate set of standalone CUDA kernels (sparse mat vec, batched
-eigendecomposition, PageRank, force directed layout) can also be built via CMake
-for cupy users:
-
-```bash
-cd rexgraph/cuda && mkdir build && cd build
-cmake .. -DCUDA_ARCH="80;89;90"
-make -j$(nproc)
-```
-
-Requires the CUDA toolkit and cupy. If absent, rexgraph runs on CPU.
-
-
-## Acknowledgements
-
-RexGraph integrations build on these open source projects:
-
-- [llama.cpp](https://github.com/ggml-org/llama.cpp): Local LLM inference; the agent's native runtime for running quantized models on CPU and GPU.
-- [TrustGraph](https://github.com/trustgraph-ai/trustgraph): Knowledge graph construction and management for RAG applications.
-- [Hugging Face Transformers](https://github.com/huggingface/transformers): Pre trained transformer models and inference.
-- [LangChain](https://github.com/langchain-ai/langchain): Framework for building applications with language models.
-- [LangGraph](https://github.com/langchain-ai/langgraph): Stateful agent orchestration with cyclic computation graphs.
-- [vLLM](https://github.com/vllm-project/vllm): High throughput LLM serving.
-
+The package guides above describe their APIs and data contracts. For lower
+level implementations and measurements, see the
+[compiled kernel reference](rexgraph/core/REFERENCE.md),
+[I/O reference](rexgraph/io/REFERENCE.md) and
+[benchmark guide](agent/agent/benchmarks/README.md).
+Report reproducible failures or request features through
+[GitHub Issues](https://github.com/sirtrott1/rexgraph/issues), including the
+installation profile, interpreter version and relevant error output.
 
 ## License
 
-Apache License 2.0
+RexGraph is distributed under the [Apache License 2.0](LICENSE).

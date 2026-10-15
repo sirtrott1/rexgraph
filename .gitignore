@@ -6,13 +6,14 @@ __pycache__/
 .eggs/
 .installed.cfg
 
-# Compiled extensions (the core is built into the conda env, never committed here)
+# Compiled extensions and local native libraries
 *.so
 *.pyd
 *.dylib
 
 # Build / packaging artifacts
 build/
+/build
 dist/
 wheels/
 *.whl
@@ -36,6 +37,7 @@ htmlcov/
 
 # Local env / secrets / logs (never commit real config or credentials)
 .env
+.venv
 *.log
 certs/
 *.pem
@@ -46,13 +48,11 @@ certs/
 *.swp
 .DS_Store
 
-# LLM / editor local config (not product). Each tool state directory is named here
-# rather than trusted to the .gitignore the tool writes inside it.
+# Local editor and coding tool state
 .claude/
 .codex/
 .remember/
 .superpowers/
-CLAUDE.md
 
 # Generated stress/perf fixtures (not committed; regenerate as needed)
 test_data/
@@ -63,24 +63,15 @@ test_data/
 playground/
 agent/frontend/theme-ps2-preview.html
 
-# Internal working documentation. Never published: it carries defect lists,
-# verification records, and grounding notes. The durable copy lives in
-# rexgraph-internal/docs/.
+# Archived local working files are excluded from distributions.
 docs/v1.0.4/
 
-# Built by agent/agent/native/build.sh against a LOCAL llama.cpp. The link step
-# bakes -rpath to that build tree, so a committed binary carries one machine's
-# absolute paths and does not run anywhere else -- 1.8 MB of unusable artifact
-# next to the source that produces it. attn_introspect.available() reports False
-# until it is built, so nothing breaks without it.
+# The optional attention capture binary links to a local llama.cpp build.
 agent/agent/native/rex_attn_capture
 
-# internal documents, not for the public tree. Every markdown file here is internal
-# except a README: those describe the package to whoever installs it. AGENTS.md is
-# working guidance for whoever edits it, and it names internal paths outside this repo.
+# Local maintenance records and repository instructions are not shipped.
 CHANGELOG.md
 AGENTS.md
 
-# generated demonstration output: the writer refuses to overwrite an existing
-# artifact, so a checked-in copy would prevent re-running the demo into it
+# Local generated output
 bio-demo-out/

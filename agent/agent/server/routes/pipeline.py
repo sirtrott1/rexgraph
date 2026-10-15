@@ -22,34 +22,36 @@ import os
 import queue as queue_module
 import tempfile
 from pathlib import Path
+from threading import Event
 
 import numpy as np
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from starlette.responses import StreamingResponse
 
 from agent.server.scope import effective_workspace
+from agent.server.upload_files import read_uploads
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/pipeline")
 
 _executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
-# Isolated + warm analysis workers. A `forkserver` imports the heavy stack once,
-# then each analysis forks from it cheaply; a crash/OOM in a child never touches
-# the server. Created lazily and cached (the first request pays the one time
-# forkserver+preload startup; the rest are fast forks).
+# Analysis runs in a separate process. Use forkserver with preloaded modules
+# where supported, or spawn a fresh interpreter on other platforms.
 _ANALYSIS_CTX = None
 
 
 def _analysis_ctx():
     global _ANALYSIS_CTX
     if _ANALYSIS_CTX is None:
-        ctx = multiprocessing.get_context("forkserver")
-        try:
-            ctx.set_forkserver_preload(
-                ["numpy", "scipy", "agent.pipeline_runner"])
-        except Exception:
-            pass  # preload is an optimization; forks still work without it
+        method = "forkserver" if "forkserver" in multiprocessing.get_all_start_methods() else "spawn"
+        ctx = multiprocessing.get_context(method)
+        if method == "forkserver":
+            try:
+                ctx.set_forkserver_preload(
+                    ["numpy", "scipy", "agent.pipeline_runner"])
+            except Exception:
+                pass  # Module preloading is optional.
         _ANALYSIS_CTX = ctx
     return _ANALYSIS_CTX
 
@@ -112,15 +114,22 @@ class _SafeEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
+def _sse(event, payload):
+    return f"event: {event}\ndata: {json.dumps(payload, cls=_SafeEncoder)}\n\n"
+
+
 def _save_uploads(files):
     paths = []
-    for f in files:
-        suffix = os.path.splitext(f["name"])[1] or ".bin"
-        fd, path = tempfile.mkstemp(suffix=suffix, prefix="rexgraph_")
-        os.close(fd)
-        with open(path, "wb") as fh:
-            fh.write(f["content"])
-        paths.append(path)
+    try:
+        for f in files:
+            suffix = os.path.splitext(f["name"])[1] or ".bin"
+            fd, path = tempfile.mkstemp(suffix=suffix, prefix="rexgraph_")
+            paths.append(path)
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(f["content"])
+    except BaseException:
+        _cleanup_temps(paths)
+        raise
     return paths
 
 
@@ -236,7 +245,8 @@ def _ingest_files(file_paths, ocr_client, event_queue, use_fusion=False):
 
 def _analysis_subprocess(ocr_texts, ocr_doc_ids, direct_paths,
                           query, max_rechunk, depth, workspace, event_queue,
-                          ontology=False):
+                          ontology=False, face_selection=None, reader_options=None,
+                          workspace_config_dir=None):
     """Run analysis in a subprocess using PipelineRunner.
 
     Receives OCR'd texts AND raw file paths. PipelineRunner routes
@@ -246,6 +256,8 @@ def _analysis_subprocess(ocr_texts, ocr_doc_ids, direct_paths,
     import traceback
 
     try:
+        if workspace_config_dir is not None:
+            os.environ["REXGRAPH_CONFIG_DIR"] = workspace_config_dir
         len(ocr_texts) + len(direct_paths)
         print("[analysis] subprocess: %d OCR texts + %d direct files" % (
             len(ocr_texts), len(direct_paths)),
@@ -271,6 +283,8 @@ def _analysis_subprocess(ocr_texts, ocr_doc_ids, direct_paths,
             max_rechunk=max_rechunk,
             depth=depth,
             ontology=ontology,
+            face_selection=face_selection,
+            reader_options=reader_options,
         )
 
         print("[analysis] complete: %d docs, %.1fs" % (
@@ -301,23 +315,19 @@ def _analysis_subprocess(ocr_texts, ocr_doc_ids, direct_paths,
 
 
 def _save_to_workspace(runner, workspace):
-    try:
-        from agent.server.persistence import doc_path, save_document_rex
-        corpus = getattr(runner, '_last_corpus', None)
-        if corpus is None:
-            return
-        for doc in corpus.documents:
-            if doc.rex is None:
-                continue
-            try:
-                save_document_rex(workspace, doc.doc_id, doc.rex)
-                if doc.text:
-                    text_path = doc_path(workspace, doc.doc_id, suffix=".txt")
-                    text_path.write_text(doc.text, encoding="utf-8")
-            except Exception:
-                pass
-    except Exception:
-        pass
+    from agent.server.persistence import doc_path, save_document_rex
+    from rexgraph.io.publication import staged_publication
+    corpus = getattr(runner, '_last_corpus', None)
+    if corpus is None:
+        return
+    for doc in corpus.documents:
+        if doc.rex is None:
+            continue
+        save_document_rex(workspace, doc.doc_id, doc.rex)
+        if doc.text:
+            text_path = doc_path(workspace, doc.doc_id, suffix=".txt")
+            with staged_publication(text_path) as staged:
+                staged.write_text(doc.text, encoding="utf-8")
 
 
 def _register_documents(result_data, workspace):
@@ -327,85 +337,72 @@ def _register_documents(result_data, workspace):
             if chunk_group.get("doc_id") == doc.get("doc_id"):
                 doc["chunks"] = chunk_group.get("chunks", [])
                 break
-    try:
-        from agent.server.app import get_store
-        from agent.server.persistence import load_document_rex
-        store = get_store()
-        for doc in result_data.get("documents", []):
-            doc_id = doc.get("doc_id", "")
-            if not doc_id:
-                continue
-            try:
-                rex = load_document_rex(workspace, doc_id)
-                if rex is None:
-                    continue
-                session = store.create(name=doc_id)
-                analysis = doc.get("analysis", {})
-                if not analysis:
-                    analysis = {}
-                    if doc.get("betti"):
-                        analysis["topology"] = {"betti": doc["betti"]}
-                    if doc.get("hodge"):
-                        analysis["hodge"] = doc["hodge"]
-                    if doc.get("kappa_mean") is not None:
-                        analysis["relational"] = {
-                            "kappa_mean": doc["kappa_mean"],
-                            "chi_mean": doc.get("chi_mean"),
-                        }
-                # the picture of what was built, beside the numbers about it. Same
-                # render_payload the Graph screen and the rexgraph_render tool take, so a
-                # pipeline run and a later look at the same session cannot disagree.
-                # Bounded and REPORTED rather than gated: a truncated picture says so.
-                try:
-                    from agent.graph_view import render_payload
-                    from agent.render_svg import render_svg
+    from agent.server.app import get_store
+    from agent.server.persistence import load_document_rex
+    store = get_store()
+    for doc in result_data.get("documents", []):
+        doc_id = doc.get("doc_id", "")
+        if not doc_id:
+            continue
+        rex = load_document_rex(workspace, doc_id)
+        if rex is None:
+            raise FileNotFoundError(f"Saved document is unavailable: {doc_id}")
+        session = store.create(name=doc_id)
+        session._metadata["workspace"] = workspace
+        session._metadata["doc_id"] = doc_id
+        analysis = doc.get("analysis", {})
+        if not analysis:
+            analysis = {}
+            if doc.get("betti"):
+                analysis["topology"] = {"betti": doc["betti"]}
+            if doc.get("hodge"):
+                analysis["hodge"] = doc["hodge"]
+            if doc.get("kappa_mean") is not None:
+                analysis["relational"] = {
+                    "kappa_mean": doc["kappa_mean"],
+                    "chi_mean": doc.get("chi_mean"),
+                }
+        # the picture of what was built, beside the numbers about it. Same
+        # render_payload the Graph screen and the rexgraph_render tool take, so a
+        # pipeline run and a later look at the same session cannot disagree.
+        # Bounded and REPORTED rather than gated: a truncated picture says so.
+        try:
+            from agent.graph_view import render_payload
+            from agent.render_svg import render_svg
 
-                    labels = (getattr(rex, "_agent_meta", {}) or {}).get("vertex_labels")
-                    payload = render_payload(rex, labels=labels, limit=400)
-                    drawn = {r["index"] for r in payload.get("relations", [])}
-                    doc["drawing"] = {
-                        "drawn": True,
-                        "svg": render_svg(payload),
-                        "cells_drawn": len(drawn), "cells_total": int(rex.nE),
-                        "truncated": len(drawn) < int(rex.nE),
-                        "faces_drawn": sum(1 for f in payload.get("faces", [])
-                                           if set(f["relations"]) <= drawn),
-                        "faces_total": int(rex.nF_hodge),
-                        "reading": ("positions are exact rationals from each cell's own "
-                                    "star; length is the quadrance, so it carries arity; "
-                                    "colour is the character through K7's spectrum"),
-                    }
-                except Exception as exc:
-                    # a run that could not be drawn has still been analysed
-                    doc["drawing"] = {"drawn": False,
-                                      "reason": f"{type(exc).__name__}: {exc}"}
-                session.add_snapshot(
-                    rex=rex, action="pipeline", params={},
-                    results=analysis,
-                    summary="Pipeline: %s (%dV %dE %dF)" % (
-                        doc_id, doc.get("nV", 0),
-                        doc.get("nE", 0), doc.get("nF", 0)),
-                )
-                doc["session_id"] = session.session_id
-                doc["workspace"] = workspace
-                # Make the storage linkage bidirectional:
-                # tag the session with its workspace and record the
-                # doc -> session mapping in the workspace index.
-                try:
-                    session._metadata["workspace"] = workspace
-                    session._metadata["doc_id"] = doc_id
-                    session._save_index()
-                except Exception:
-                    pass
-                try:
-                    from agent.server.persistence import link_doc_session
-                    link_doc_session(workspace, doc_id, session.session_id)
-                except Exception:
-                    pass
-            except Exception:
-                pass
-    except Exception:
-        pass
+            labels = (getattr(rex, "_agent_meta", {}) or {}).get("vertex_labels")
+            payload = render_payload(rex, labels=labels, limit=400)
+            drawn = {r["index"] for r in payload.get("relations", [])}
+            doc["drawing"] = {
+                "drawn": True,
+                "svg": render_svg(payload),
+                "cells_drawn": len(drawn), "cells_total": int(rex.nE),
+                "truncated": len(drawn) < int(rex.nE),
+                "faces_drawn": sum(1 for f in payload.get("faces", [])
+                                   if set(f["relations"]) <= drawn),
+                "faces_total": int(rex.nF_hodge),
+                "reading": ("positions are exact rationals from each cell's own "
+                            "star; length is the quadrance, so it carries arity; "
+                            "colour is the character through K7's spectrum"),
+            }
+        except Exception as exc:
+            # a run that could not be drawn has still been analysed
+            doc["drawing"] = {"drawn": False,
+                              "reason": f"{type(exc).__name__}: {exc}"}
+        session.add_snapshot(
+            rex=rex, action="pipeline", params={},
+            results=analysis,
+            summary="Pipeline: %s (%dV %dE %dF)" % (
+                doc_id, doc.get("nV", 0),
+                doc.get("nE", 0), doc.get("nF", 0)),
+        )
+        doc["session_id"] = session.session_id
+        doc["workspace"] = workspace
+        # Make the storage linkage bidirectional:
+        # tag the session with its workspace and record the
+        # doc -> session mapping in the workspace index.
+        from agent.server.persistence import link_doc_session
+        link_doc_session(workspace, doc_id, session.session_id)
     return result_data
 
 
@@ -435,16 +432,31 @@ async def stream_pipeline(
     # text and a stamped session into their namespace.
     workspace = effective_workspace(workspace)
 
-    upload_data = []
-    for f in files:
-        content = await f.read()
-        upload_data.append({"name": f.filename or "file", "content": content})
+    try:
+        options = json.loads(reader_options)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise HTTPException(400, "reader_options must be a JSON object") from exc
+    if not isinstance(options, dict):
+        raise HTTPException(400, "reader_options must be a JSON object")
+    from agent.auto import FACE_WORDS
+    if face_selection not in FACE_WORDS:
+        raise HTTPException(400, "face_selection must be one of " + ", ".join(FACE_WORDS))
+
+    upload_data = await read_uploads(files)
 
     async def generate():
-        temp_paths = _save_uploads(upload_data)
+        temp_paths = []
         loop = asyncio.get_event_loop()
         proc = None
+        analysis_queue = None
+        ingestion_done, cleanup_requested = Event(), Event()
+        ingestion_started = False
         try:
+            try:
+                temp_paths = _save_uploads(upload_data)
+            except Exception as exc:
+                yield _sse("error", {"error": f"Upload staging failed: {exc}"})
+                return
             # Phase 1, ingest: OCR images and PDFs, identify direct files
             import queue as thread_queue
             ingest_queue = thread_queue.Queue()
@@ -462,18 +474,25 @@ async def stream_pipeline(
                     ocr_client = _get_ocr_client(backend)
                 except Exception as e:
                     logger.error("OCR client failed: %s", e)
-                    yield 'event: error\ndata: {{"error": "OCR init failed: {}"}}\n\n'.format(str(e).replace('"', '\\"'))
+                    yield _sse("error", {"error": f"OCR init failed: {e}"})
                     return
 
+            def ingest():
+                try:
+                    return _ingest_files(temp_paths, ocr_client, ingest_queue,
+                                         use_fusion=fusion)
+                finally:
+                    ingestion_done.set()
+                    if cleanup_requested.is_set():
+                        _cleanup_temps(temp_paths)
+
             try:
-                ocr_texts, ocr_doc_ids, direct_paths = await loop.run_in_executor(
-                    _executor,
-                    lambda: _ingest_files(temp_paths, ocr_client, ingest_queue,
-                                          use_fusion=fusion),
-                )
+                future = loop.run_in_executor(_executor, ingest)
+                ingestion_started = True
+                ocr_texts, ocr_doc_ids, direct_paths = await asyncio.shield(future)
             except Exception as e:
                 logger.error("Ingestion failed: %s", e)
-                yield 'event: error\ndata: {{"error": "Ingestion failed: {}"}}\n\n'.format(str(e).replace('"', '\\"'))
+                yield _sse("error", {"error": f"Ingestion failed: {e}"})
                 return
 
             # Yield ingest events
@@ -493,12 +512,14 @@ async def stream_pipeline(
             # Phase 2: run compiled analysis in an isolated subprocess. The selected
             # context uses forkserver with preloaded analysis modules where available.
             ctx = _analysis_ctx()
+            from agent.server.handles import config_dir
             analysis_queue = ctx.Queue()
             proc = ctx.Process(
                 target=_analysis_subprocess,
                 args=(ocr_texts, ocr_doc_ids, direct_paths,
                       query, max_rechunk, depth, workspace,
-                      analysis_queue, ontology),
+                      analysis_queue, ontology, face_selection, options,
+                      str(config_dir())),
             )
             proc.start()
 
@@ -510,10 +531,14 @@ async def stream_pipeline(
                             None, lambda: analysis_queue.get(timeout=2.0)),
                         timeout=5.0,
                     )
-                except (asyncio.TimeoutError, queue_module.Empty, Exception):
+                except (asyncio.TimeoutError, queue_module.Empty):
                     if not proc.is_alive() and analysis_queue.empty():
                         break
                     continue
+                except Exception as exc:
+                    yield _sse("error", {"error": f"Analysis queue failed: {exc}"})
+                    finished = True
+                    break
 
                 kind = msg[0]
                 if kind == "phase":
@@ -521,29 +546,21 @@ async def stream_pipeline(
                         {"phase": msg[1], **msg[2]}, cls=_SafeEncoder)
                     yield f"event: phase\ndata: {payload}\n\n"
                 elif kind == "done":
-                    result_data = _register_documents(msg[1], workspace)
-                    yield "event: done\ndata: {}\n\n".format(json.dumps(
-                        result_data, cls=_SafeEncoder))
+                    try:
+                        result_data = _register_documents(msg[1], workspace)
+                    except Exception as exc:
+                        yield _sse("error", {"error": f"Unable to save analysis session: {exc}"})
+                    else:
+                        yield _sse("done", result_data)
                     finished = True
                 elif kind == "error":
-                    yield 'event: error\ndata: {{"error": "{}"}}\n\n'.format(str(
-                        msg[1]).replace('"', '\\"'))
+                    yield _sse("error", {"error": str(msg[1])})
                     finished = True
-
-            while not analysis_queue.empty():
-                try:
-                    msg = analysis_queue.get_nowait()
-                    if msg[0] == "phase":
-                        payload = json.dumps(
-                            {"phase": msg[1], **msg[2]}, cls=_SafeEncoder)
-                        yield f"event: phase\ndata: {payload}\n\n"
-                except Exception:
-                    break
 
             if proc is not None:
                 proc.join(timeout=10)
-                if not finished and proc.exitcode is not None and proc.exitcode != 0:
-                    if proc.exitcode < 0:
+                if not finished:
+                    if proc.exitcode is not None and proc.exitcode < 0:
                         import signal
                         try:
                             sig_name = signal.Signals(-proc.exitcode).name
@@ -551,16 +568,8 @@ async def stream_pipeline(
                             sig_name = "signal %d" % (-proc.exitcode)
                     else:
                         sig_name = "exit code %d" % proc.exitcode
-                    yield ('event: error\ndata: {"error": '
-                           f'"Analysis worker exited ({sig_name}) - most likely the graph '
-                           'was too large/dense for available memory. The server '
-                           'is unaffected; try a smaller or sparser input, or lower '
-                           'REXGRAPH_MAX_ANALYSIS_EDGES."}\n\n')
+                    yield _sse("error", {"error": f"Analysis worker exited without a result ({sig_name})."})
         finally:
-            # Always let analysis finish before deleting temp files, even if the
-            # client disconnected mid run, so the worker never reads a file that
-            # cleanup already removed, for both the subprocess and the
-            # in process paths.
             if proc is not None:
                 try:
                     if proc.is_alive():
@@ -568,7 +577,13 @@ async def stream_pipeline(
                     proc.join(timeout=5)
                 except Exception:
                     pass
-            _cleanup_temps(temp_paths)
+            if analysis_queue is not None:
+                with contextlib.suppress(Exception):
+                    analysis_queue.close()
+                    analysis_queue.join_thread()
+            cleanup_requested.set()
+            if not ingestion_started or ingestion_done.is_set():
+                _cleanup_temps(temp_paths)
 
     return StreamingResponse(
         generate(),

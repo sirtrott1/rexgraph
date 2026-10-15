@@ -1,24 +1,14 @@
-"""rexgraph.scale_propagator: the character engine as moments of f(RL4).
+"""Moment reductions and Green diagonal calculations for relation operators.
 
-The character/coherence layer is a set of **moments of a sparse matrix function
-f(RL4)**: not per vertex Green's solves and not an eigendecomposition. The
-identities here are guarded in rexgraph/tests/test_eigenfree.py and
-test_scale_bridge.py.
+energy_character computes diag(RL4 squared) through row norms.
+harmonic_entropy computes H2 = -log(tr(X squared) / tr(X) squared).
+The varentropy calculations compare trace moments of the same operator.
 
-  * Local energy character  = O(nnz) row norms  diag(RL4²)_e = ‖RL4[e,:]‖²
-    (the short-time t² moment of the heat propagator).
-  * Resolvent diagonal      = diag(RL4⁻¹) by fixed tolerance block CG solves of RL4·X = I
-    to a fixed tolerance - one algorithm at every scale,
-    no eigendecomposition, no size-gated approximation.
-  * Harmonic log            = eigen free **Rényi-2** (collision) entropy
-    H₂(X) = -log(tr(X²)/tr(X)²), with the H₂-H₃/Shannon gap as a free
-    **varentropy reliability flag**.
-
-All quantities here are O(nnz) trace/row reductions or fixed tolerance numerical
-solves; none forms a dense nE×nE operator, calls an eigensolver, or branches to a
-stochastic estimate by size. (The general-f Chebyshev matrix function diagonal -
-diag(e^{-tL}) for arbitrary t has no exact O(nnz) form and is a dense or stochastic
-estimator, lives in rexgraph._experimental, off every live path.)
+Green diagonal queries use fixed tolerance block conjugate gradient solves.
+Identity columns are processed in chunks to bound working memory. Singular
+operators use an explicitly supplied harmonic frame for deflation.
+The polynomial heat diagonal is a separate calculation used by
+RexGraph.heat_character.
 """
 from __future__ import annotations
 
@@ -28,7 +18,7 @@ _f64 = np.float64
 
 # GPU auto gate: a Chebyshev apply goes to the GPU only when the work n*order*columns
 # clears this bound (below it, host<->device transfer outweighs the on device speedup).
-# Default ~4.2M is the measured CPU/GPU crossover on the Strix Halo iGPU; tune per host
+# Default GPU dispatch threshold; configure it for the workload and host
 # via the REXGRAPH_GPU_MIN_WORK env var. The RESULT is identical either way. This is a
 # pure performance gate, never a correctness one.
 import os as _os
@@ -208,7 +198,7 @@ def _tile_columns_across_gpus(kernel, ncols, devices, axis=1):
 
 def _multi_gpu_plan(work, ncols):
     """The device index list for a multi GPU column tiling, or None to keep the single device
-    path. Returns >=2 device indices ONLY when: >1 column to split, >=2 usable GPUs
+    path. Returns >=2 device indices only when: >1 column to split, >=2 usable GPUs
     (compute.gpu_devices(), capped by REXGRAPH_MAX_GPUS), AND the work clears the multi GPU
     gate (compute.multi_gpu_min_work(), larger than _GPU_MIN_WORK). Otherwise None, so the
     caller runs the existing single GPU kernel unchanged. Never raises."""
@@ -297,6 +287,13 @@ def block_cg_solve(L, B, dinv, tol=1e-10, maxit=1000, backend=None):
     the auto gate: GPU resident (operator + block on device). Returns X (numpy).
     Reusable by any matrix free Green's/resistance solve; CPU is the exact fallback."""
     B = np.ascontiguousarray(np.asarray(B, dtype=_f64))
+    if _resolve_backend(backend) == "vulkan":
+        from rexgraph.vulkan_compute import block_cg
+        try:
+            return block_cg(L, B, dinv, tol=tol, maxit=maxit)
+        except Exception:
+            if backend == "vulkan":
+                raise
     n = L.shape[0]
     ncols = B.reshape(B.shape[0], -1).shape[1]
     if n * ncols >= _GPU_MIN_WORK and _resolve_backend(backend) == "gpu":
@@ -337,14 +334,20 @@ def _block_cg_gpu_multi(R, B, dinv, devices, tol, maxit):
 
 
 def greens_diagonal(RL4, tol=1e-10, chunk=512, backend=None):
-    """diag(RL4⁻¹) by fixed tolerance block CG solves of RL4·X = I (RL4/RL3 is SPD, trace-
-    normalized and well conditioned). One algorithm at every scale: each solve runs
-    to a FIXED residual tolerance, so accuracy is scale independent, and only the
-    iteration count and the number of identity columns grow with size (more
-    compute/memory, never less accuracy). `chunk` tiles the columns purely to bound
-    peak memory; it does not change the result. Returns f64[nE]. (The resolvent as a
-    Chebyshev matrix function (a general-f estimator, not exact) is preserved in
-    rexgraph._experimental.)"""
+    """Return diag(RL4 inverse) using block conjugate gradient solves.
+
+    The operator must be positive definite. Each identity column is solved
+    to the supplied residual tolerance. chunk bounds the number of columns
+    processed together and does not change the requested result. Returns
+    one float value per relation.
+    """
+    if _resolve_backend(backend) == "vulkan":
+        from rexgraph.vulkan_compute import greens_diagonal as vulkan_diagonal
+        try:
+            return vulkan_diagonal(RL4, tol=tol, chunk=chunk)
+        except Exception:
+            if backend == "vulkan":
+                raise
     from rexgraph.sparse_character import _block_cg
     R = _csr(RL4)
     n = R.shape[0]
@@ -608,6 +611,13 @@ def matfunc_apply(L, f, func, order, lam_max=None, backend=None):
         lam_max = _gershgorin_bound(L) * 1.0001 + 1e-30
     lam, cos_kj = _cheb_basis(lam_max, order)
     c = _cheb_coeffs(np.asarray(func(lam), dtype=_f64), cos_kj, order)
+    if _resolve_backend(backend) == "vulkan":
+        from rexgraph.vulkan_compute import matfunc_apply as vulkan_apply
+        try:
+            return vulkan_apply(L, f, c, lam_max)
+        except Exception:
+            if backend == "vulkan":
+                raise
     # Size auto gate: the GPU wins only when the work (n * order * columns) is big enough
     # to amortize host<->device transfer; smaller problems stay on CPU (identical result,
     # just faster). `backend='gpu'/'auto'` still honors the gate; the CPU path is exact.
@@ -643,6 +653,11 @@ def _resolve_backend(backend):
             name = None
     if name in (None, "cpu", "openmp"):
         return "cpu"
+    if name == "vulkan":
+        if backend == "vulkan":
+            return "vulkan"
+        from rexgraph.vulkan_compute import available
+        return "vulkan" if available() else "cpu"
     if name in ("gpu", "cuda", "rocm", "mps", "auto"):
         try:
             import torch
@@ -650,6 +665,10 @@ def _resolve_backend(backend):
                 return "gpu"
         except Exception:
             pass
+        if backend in (None, "gpu", "auto"):
+            from rexgraph.vulkan_compute import available
+            if available():
+                return "vulkan"
     return "cpu"
 
 

@@ -1,10 +1,8 @@
-"""The pipeline separates multiplicity from topology when it reports dim_H.
+"""Check separate cycle dimensions for duplicate relations and other structure.
 
-beta_1 alone overstates the topology of a document. Two relations can be distinct
-and still have the same boundary column, and their difference is a cycle that
-records an occurrence count rather than a hole. Measured on the Gutenberg store it
-is 37% to 85% of dim_H, so reporting dim_H without the split reports mostly
-occurrence counting.
+Distinct relations can carry the same boundary column. Their differences
+create multiplicity cycles, which the pipeline reports separately from
+cycles remaining after those columns are identified.
 """
 from __future__ import annotations
 

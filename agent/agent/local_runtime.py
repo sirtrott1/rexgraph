@@ -1,20 +1,14 @@
 """
-local_runtime: manage a local llama.cpp-family inference server as a first class
-backend for rexgraph-agent.
+Manage a local llama.cpp compatible inference server.
 
-The agent talks to any OpenAI compatible endpoint (``chat_model``). This module makes
-a *local* one first class: it launches ``llama-server`` (or a compatible server such as
-TurboQuant+ or Cortex.cpp) as a managed SUBPROCESS, health checks it, and registers its
-URL, so the whole stack (chat, the token perplexity/varentropy metrics,
-agentic_reading) runs on the local model. Guarantees logprobs, since llama server
-returns them, so the metrics light up.
-
-DECOUPLED BY DESIGN: the engine runs as a subprocess behind the OpenAI compatible seam
-and is never vendored or compiled into the wheel. So llama.cpp, TurboQuant+, Cortex.cpp
-and vLLM are interchangeable by config, and the split that matters stays intact: the
-agent is pure Python, the core is compiled Cython, and neither reaches into the other.
+The module starts a selected server executable, checks its health and registers
+its OpenAI compatible endpoint with Agent. The executable and model files are
+supplied separately. Chat and token metrics use the capabilities exposed by the
+selected server; token metrics require support for log probabilities.
 """
 from __future__ import annotations
+
+from agent.data_paths import config_root, models_root, huggingface_cache_root
 
 import atexit
 import contextlib
@@ -42,10 +36,8 @@ _STATE: dict = {}
 _EMBED_PROC: subprocess.Popen | None = None    # dedicated embedding worker (the beehive embedder)
 _EMBED_STATE: dict = {}
 
-# Backend agnostic launch defaults. RexGraph is a GENERAL platform: CUDA, ROCm,
-# Vulkan, Metal, and CPU are all first class; the backend is a build time choice of the
-# llama.cpp binary you point this at, and the launcher adapts (n_gpu_layers is derived
-# from detected VRAM unless you set it). None of this is tied to any one machine.
+# The selected executable determines CPU, CUDA, ROCm, Vulkan or Metal support.
+# GPU layer defaults are derived from detected memory unless explicitly configured.
 DEFAULTS = {
     "n_gpu_layers": None,     # None -> auto: full offload if the model fits VRAM, else partial
     "ctx_size": 16384,        # room for RexGraph's structural system prompt
@@ -150,8 +142,9 @@ def _compute_gpu(gpus: list) -> dict | None:
 
 
 def detect_hardware() -> dict:
-    """Detect available inference backends + memory so recommendations and launch args
-    adapt to the ACTUAL machine: CUDA/ROCm/Vulkan/Metal/CPU all first class. Returns
+    """Detect inference backends and memory for model selection and launch arguments.
+
+    Returns
     {os, backends, gpu, ram_gb, model_budget_gb, recommended_backend}."""
     import platform
     osname = platform.system()
@@ -189,8 +182,7 @@ def detect_hardware() -> dict:
     # CPU path draw on system RAM (leave headroom).
     vram = (gpu or {}).get("vram_gb")
     if vram and (gpu or {}).get("unified"):
-        # a carveout is not the budget: a unified GPU reaches system RAM, and on Strix
-        # Halo the 4 GiB vram figure would have understated a 121 GiB machine by 30x
+        # A unified GPU uses system RAM beyond its reserved VRAM allocation.
         budget = round(ram * 0.75, 1)
     elif vram:
         budget = vram
@@ -273,8 +265,7 @@ def _auto_ngl(model_path: str) -> int:
 def _server_log_path(port: int) -> str:
     """Where a managed server's stdout+stderr is captured, so a failed launch is diagnosable
     instead of a black box 'exit 1'."""
-    d = os.path.join(os.environ.get("REXGRAPH_CONFIG_DIR",
-                                    os.path.expanduser("~/.config/rexgraph")), "logs")
+    d = str(config_root() / "logs")
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, f"llama-server-{port}.log")
 
@@ -548,8 +539,7 @@ def pull(repo: str, filename: str, dest_dir: str | None = None) -> str:
         raise RuntimeError(
             "Downloading needs huggingface_hub (`pip install huggingface_hub`), or "
             "download the .gguf manually and pass its path to start().") from e
-    dest = os.path.expanduser(dest_dir or os.environ.get(
-        "REXGRAPH_MODELS_DIR", "~/.cache/rexgraph/models"))
+    dest = os.path.expanduser(dest_dir or str(models_root()))
     os.makedirs(dest, exist_ok=True)
     return hf_hub_download(repo_id=repo, filename=filename, local_dir=dest)
 
@@ -557,11 +547,11 @@ def pull(repo: str, filename: str, dest_dir: str | None = None) -> str:
 def _default_scan_dirs() -> list[str]:
     """Where local models actually land, across the common toolchains. Extend with
     REXGRAPH_MODEL_DIRS (os.pathsep-separated) for non standard locations."""
+    selected = os.environ.get("REXGRAPH_MODEL_SCAN_DIRS")
     home = os.path.expanduser("~")
-    dirs = [
-        os.path.join(home, ".cache", "huggingface", "hub"),      # HF (transformers, vLLM source, hf gguf)
-        os.path.join(home, ".cache", "rexgraph", "models"),      # our own pull() dest
-        os.environ.get("REXGRAPH_MODELS_DIR", ""),
+    dirs = selected.split(os.pathsep) if selected else [
+        str(huggingface_cache_root()),
+        str(models_root()),
         os.path.join(home, ".ollama", "models"),                 # ollama blobs
         os.path.join(home, ".lmstudio", "models"),               # LM Studio
         os.path.join(home, "models"),
@@ -573,8 +563,9 @@ def _default_scan_dirs() -> list[str]:
     seen, out = set(), []
     for d in dirs:
         d = os.path.expanduser(d.strip())
-        if d and d not in seen and os.path.isdir(d):
-            seen.add(d); out.append(d)
+        identity = os.path.realpath(d)
+        if d and identity not in seen and os.path.isdir(d):
+            seen.add(identity); out.append(d)
     return out
 
 
@@ -589,10 +580,13 @@ def discover_local_models(extra_dirs: list[str] | None = None, max_files: int = 
     vLLM/transformers; anything else ollama can hold, e.g. an MLX model, llama.cpp cannot load -
     reported but not loadable), and a size. De duped by real path."""
     roots = list(_default_scan_dirs())
+    root_identities = {os.path.realpath(d) for d in roots}
     for d in (extra_dirs or []):
         d = os.path.expanduser(d)
-        if os.path.isdir(d) and d not in roots:
+        identity = os.path.realpath(d)
+        if os.path.isdir(d) and identity not in root_identities:
             roots.append(d)
+            root_identities.add(identity)
 
     def _source(path: str) -> str:
         p = path.lower()

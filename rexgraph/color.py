@@ -1,47 +1,30 @@
-"""Colour derived from the character, through K7's spectrum.
+"""Map channel character vectors to sRGB using a fixed K7 reference.
 
-A palette is a decision someone made. This is not one: a cell's channel character is
-mixed into the channel operators of K7, the complete graph on seven vertices, its spectrum
-is read as wavelengths against the Balmer limit, and those are integrated through the CIE
-colour matching functions into sRGB. So the colour of a cell is a physical consequence of
-its character rather than a lookup, two cells the same colour have the same character, and
-nothing here has a range to normalise or a legend that could lie.
+The module builds the signed and unsigned Gram operators on the complete
+graph with seven vertices, then combines them using the input character
+weights. It converts the resulting eigenvalues to wavelengths, integrates
+the CIE colour matching functions and converts XYZ coordinates to sRGB.
+Using the same reference keeps the mapping consistent across complexes.
 
-The construction is::
+The construction is:
 
-    B1        K7's boundary operator, 7 x 21, entries -1 and +1
-    T         B1^T B1              the signed Gram
-    G         |B1|^T |B1|          its unsigned twin
-    F         G - T, shifted to PSD by its own most negative entry
-    hats      each trace-normalised; C = G, since the two coincide on a complete graph
-    M(chi)    chi_T hat_T + chi_G hat_G + chi_F hat_F + chi_C hat_C
-    lambda    the spectrum of M
-    wl_j      alpha / (lambda_j dLT),  alpha = 364.50682... nm, the Balmer limit
-    XYZ       eps * sum_j lambda_j CMF(wl_j)
-    sRGB      gamma(M_XYZ_TO_SRGB . XYZ)
+    B1        K7 boundary, shape (7, 21), with entries -1 and +1
+    T         B1^T B1
+    G         |B1|^T |B1|, the unsigned G channel
+    F         G - T, shifted by its minimum entry when negative
+    hats      trace normalization of T, G, F; C uses G
+    M(chi)    sum of the channel operators weighted by chi
+    lambda    eigenvalues of M
+    wl_j      BALMER_LIMIT / (lambda_j * dLT)
+    XYZ       exposure * sum_j lambda_j * CMF(wl_j)
+    sRGB      gamma correction after the XYZ to sRGB matrix conversion
 
-Why K7 rather than the complex being drawn: the reference has to be fixed, or the same
-character would take different colours in different complexes and the picture would stop
-being comparable. K7 is the smallest complete graph whose 21 edges give a spectrum wide
-enough to cover the visible band.
-
-One quirk is inherited deliberately. `trace(F)` on K7 is ZERO, so the trace
-normalisation divides by the 1.0 guard and `hat_F` is the only channel operator that is
-not normalised. That follows from the model rather than from an oversight:
-`diag(T) = diag(G)` identically, because squaring kills the sign, so F's diagonal is zero
-before the shift; and `G - T >= 0` everywhere on a complete graph, so the PSD shift never
-fires. Reproduced as it stands, since changing it would change every colour the system
-has ever produced.
-
-`dLT` positions the whole picture on the spectrum, because the wavelength is
-`alpha / (lambda dLT)`, and the character eigenvalues of an ordinary complex sit where a
-factor of two in dLT moves the result from deep blue to saturated yellow. It is a real
-knob, not a fudge: the same dLT gives the same colour for the same character everywhere.
-
-**The hats are exact.** K7's boundary operator is integer, so T, G and F are integer
-matrices and the trace normalisation is a ratio of integers: `k7_hats` returns Fractions.
-Everything after the eigensolve is float, which is the honest boundary, since a spectrum
-is not a rational function of its matrix.
+The fixed F operator has zero trace. Its trace normalization uses the 1.0
+guard, preserving the coefficients rather than dividing by zero. k7_hats
+returns exact Fraction coefficients. Eigenvalue evaluation and colour
+conversion use floating point arithmetic. dLT controls the wavelength
+scale, and exposure controls the XYZ amplitude. Colour is a display
+mapping and does not uniquely identify the input character.
 """
 
 from __future__ import annotations
@@ -179,26 +162,12 @@ def _spectrum(chi) -> np.ndarray:
 
 
 def exposure(chi_rows) -> dict:
-    """The `dLT` that puts the most of THIS complex inside the visible band.
+    """Choose an exposure that places the largest number of spectral values in the visible band.
 
-    dLT=1 supplies a fixed exposure. The auto mode resolves an exposure from
-    the character values so the spectrum can be mapped into the visible band.
-
-    Nothing has to be guessed to fix that, because the visibility condition is already an
-    equation. A cell's colour comes from `wl = B / (lam * dLT)` kept where
-    `360 <= wl <= 830`, so eigenvalue `lam` is visible for exactly
-
-        dLT in [B / (830 * lam), B / (360 * lam)]
-
-    one closed interval per eigenvalue. The exposure that shows the most of the complex is
-    then the point covered by the most intervals, which a sweep finds exactly: sort the
-    endpoints, run a counter, take the widest run at the maximum. The midpoint of that run
-    is taken geometrically, since `dLT` enters as a reciprocal scale and the interval is a
-    ratio rather than a difference.
-
-    So this chooses nothing. It solves for where the function the owner wrote is defined,
-    and reports the answer along with how much of the complex it reaches, because an
-    exposure that only lights half the cells is a fact about the picture.
+    A positive spectral value lam is visible when ``360 <= B / (lam * dLT) <= 830``.
+    This gives the interval ``[B / (830 * lam), B / (360 * lam)]`` for dLT. The
+    function sweeps interval endpoints, selects the widest region of maximum overlap
+    and uses its geometric midpoint as the exposure. The result also reports coverage.
     """
     rows = np.asarray(chi_rows, dtype=float)
     rows = rows.reshape(1, -1) if rows.ndim == 1 else rows

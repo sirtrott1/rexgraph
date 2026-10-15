@@ -22,12 +22,12 @@ def interval():
 
 def test_nonzero_rational_witness_and_reversal():
     _, f, g, h = interval()
-    proof = ChainHomotopy(f, g.verify(), h)
-    assert proof.residuals == (0, 0) and proof.shapes == ((1, 2), (0, 1))
+    verification = ChainHomotopy(f, g.verify(), h)
+    assert verification.residuals == (0, 0) and verification.shapes == ((1, 2), (0, 1))
     reverse = tuple(tuple((i, j, -v) for i, j, v in component) for component in h)
     assert ChainHomotopy(g, f, reverse).residuals == (0, 0)
-    assert proof.coefficient_digest != ChainHomotopy(g, f, reverse).coefficient_digest
-    proof.check_state()
+    assert verification.coefficient_digest != ChainHomotopy(g, f, reverse).coefficient_digest
+    verification.check_state()
 
 
 @pytest.mark.parametrize("defect", ["sign", "top", "missing", "float", "different-domain", "nonmap", "stale"])
@@ -56,6 +56,6 @@ def test_zero_homotopy_covers_branching_witness_loop_empty_and_full_tower(cells)
     rex = RexGraph.from_cells(cells)
     c = CoordinateComplex.from_rex(rex)
     identity = GradedMap(c, c, tuple(tuple((i, i, 1) for i in range(n)) for n in c.sizes))
-    proof = ChainHomotopy(identity, identity, tuple(() for _ in c.sizes))
-    assert proof.residuals == (0,) * len(c.sizes)
-    assert len(proof.witness) == len(c.sizes) and proof.shapes[-1][0] == 0
+    verification = ChainHomotopy(identity, identity, tuple(() for _ in c.sizes))
+    assert verification.residuals == (0,) * len(c.sizes)
+    assert len(verification.witness) == len(c.sizes) and verification.shapes[-1][0] == 0

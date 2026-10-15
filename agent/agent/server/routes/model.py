@@ -29,7 +29,7 @@ def _build_context(session, results: dict) -> str:
     """Build a system prompt from session analysis results.
 
     Includes topology, Hodge decomposition, structural character,
-    coherence, void structure, and axiom verification. The model
+    coherence, void structure, and operator residual checks. The model
     gets the mathematical structure of the data, not just the text.
     """
     rex = session.current() if session else None
@@ -285,10 +285,7 @@ async def model_generate(
             from agent.server.security import sanitize_model_response
             text = sanitize_model_response(text)
 
-            # Metrics on the reply. Token metrics (perplexity/varentropy) are ~free -
-            # extracted from the logprobs the model already returned, so always on.
-            # The structural tier (build the reply's own complex, ~250 ms) is opt in
-            # via include_structural, so we never pay it on every reply.
+            # Token metrics use returned probabilities. Structural analysis is opt in.
             from agent.metrics import reply_metrics
             metrics = reply_metrics(text, logprobs=logprobs,
                                     structural=include_structural)

@@ -114,7 +114,7 @@ def test_metric_alignment_and_exactness_refuse_before_adapters(mismatch, monkeyp
         run(rex, call("MOMENT", param("a"), param("b"), param("m"), True), a=a, b=b, m=m)
 
 
-def test_computed_metric_positivity_is_deferred_not_claimed_as_proven():
+def test_computed_metric_positivity_is_deferred_not_claimed_as_verified():
     rex = make()
     expr = call("METRIC", 1, call("ZERO", 1))
     result = run(rex, expr, explain=True)

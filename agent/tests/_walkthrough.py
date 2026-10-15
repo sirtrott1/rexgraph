@@ -452,7 +452,7 @@ def test_walkthrough(walk, tmp_path, capsys):
         w.call("POST", "/api/v1/langchain/confidence", json={"text": _TEXT})
         w.call("POST", "/api/v1/langchain/analyze", json={"text": _TEXT})
         w.call("POST", "/api/v1/langgraph/state", json={})
-        w.call("POST", "/api/v1/vllm/route", json={"text": "explain the proof step by step"})
+        w.call("POST", "/api/v1/vllm/route", json={"text": "explain the calculation step by step"})
         w.call("POST", "/api/v1/model/training", json={"target": "summary",
                                                        "format": "safetensors"})
         w.call("GET", "/api/v1/model/training/download?fmt=safetensors&target=summary")

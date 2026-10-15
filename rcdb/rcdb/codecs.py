@@ -69,7 +69,7 @@ class RecordCodec:
         raw = self.encode(value)
         digest = self.identity(raw)
         # Establish canonical bytes before publication. A custom provider still
-        # owns its declared semantic contract; byte canonicality cannot prove it.
+        # owns its declared semantic contract; canonical bytes do not validate that contract.
         decoded = self.open(raw)
         return EncodedRecord(self.reference, self.object_type, raw, digest), decoded
 

@@ -1,13 +1,8 @@
-"""Which lanes share a bus is hardware, so it is declared, not hardcoded.
+"""Check bandwidth sharing under declared unified and split memory layouts.
 
-`min(proc, igpu)` baked in unified memory. That is right on the 8060S, where the iGPU
-and the CPU are on one physical bus, and wrong on a discrete GPU box where VRAM is its
-own pool and an igpu draw costs a CPU draw nothing.
-
-The topology is a complex, edge primary: a bus is a vertex, a LANE is the relation over
-the buses it draws on, and two lanes meet exactly when they share one. A lane on a single
-bus is a 1 ary witness relation, and two witnesses on one vertex meet there, so the
-unified case falls out of the incidence rather than being special cased.
+CPU and GPU lanes share one resource in the unified layout. The split
+layout gives the GPU its own resource. Fixtures verify both cost models
+and lane placement without reading a physical machine.
 """
 import numpy as np
 import pytest
@@ -40,7 +35,7 @@ def test_the_default_is_unified_memory():
 
 
 def test_unified_memory_reproduces_the_previous_formula_exactly():
-    """The correction must not move the machine it was measured on."""
+    """The unified layout must retain the same cost for the supplied lane demands."""
     C.set_bus_topology(C.UNIFIED_MEMORY)
     cap = C.capacity()
     rng = np.random.default_rng(0)

@@ -44,7 +44,7 @@ def test_rcbf_can_be_loaded_from_a_catalog_stored_in_rcdb_and_queried(tmp_path):
     _write_branching_rcbf(path)
     catalog = FileCatalog([tmp_path])
 
-    # The FILE source form proves that RCQL sees the primary 3 ary C1 cell directly.
+    # The FILE source form checks that RCQL reads the primary 3 ary C1 cell directly.
     catalog_result = Executor(sources={"files": catalog}).execute(parse(
         'FROM FILE("files", "root0/drug_gene.rcbf") '
         'RETURN BETTI(0), BETTI(1), ARITY(CELL(1, 0))'

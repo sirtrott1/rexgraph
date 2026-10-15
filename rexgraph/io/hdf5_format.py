@@ -63,8 +63,9 @@ _ALL_CACHEABLE.update(_CACHE_GROUPS.keys())
 
 # Path helper
 
-def _ensure_h5(path: str) -> str:
+def _ensure_h5(path: str | os.PathLike) -> str:
     """Append .h5 if not already present."""
+    path = os.fspath(path)
     return path if path.endswith((".h5", ".hdf5")) else path + ".h5"
 
 

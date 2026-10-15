@@ -1,32 +1,10 @@
-"""
-Character bundle: χ (per edge), φ (per vertex), χ* (averaged), κ (coherence).
+"""Dense NumPy fixtures for edge and vertex channel character and coherence.
 
-Pure NumPy reference implementations matching the corrected definitions
-from `rexgraph.core._character`. Builds on the trace normalized hat
-operators from `channels.py`.
-
-The framework's algebraic identities (these are debug oracles):
-
-    χ(e, k) = hat_k[e, e] / RL[e, e]
-        => sum_k χ(e, k) = 1 for every edge e (simplex-valued)
-
-    φ(v, k) = x^T hat_k x / s_vv,  where x = RL^+ B_1[v, :], s_vv = B_1[v, :]^T x
-        => sum_k φ(v, k) = 1 for every structural vertex (simplex-valued)
-        => NO clipping or renormalization needed when hats are properly
-          trace-normalized
-
-    χ*(v, k) = mean over incident edges of χ(e, k)
-
-    κ(v) = 1 - 0.5 * L1(φ(v) - χ*(v))
-        => κ ∈ [0, 1] for every structural vertex
-        => measures agreement between rigorous (φ) and naive (χ*) per-vertex character
-        => low κ is the framework's built-in noise/incoherence indicator
-
-If any of these identities fail to hold, something upstream is broken
-(usually the channel construction). Do NOT clip or renormalize to "fix"
-them: that masks the actual bug.
-
-Reference: rcf_session_bundle/rex_phase_b_v2.py and rexgraph.core._character
+Edge character divides each channel diagonal by the total diagonal. Vertex
+character uses the total operator's pseudoinverse and a quadratic contribution
+from each channel. Incident edge averages provide star character; coherence
+compares that average with vertex character. Tests check normalization and
+agreement with the selected compiled operator profile on generated fixtures.
 """
 
 from __future__ import annotations
@@ -44,7 +22,7 @@ def compute_chi(RL: np.ndarray, hats: list[np.ndarray]) -> np.ndarray:
 
     When RL[e, e] ≈ 0 (degenerate edge), defaults to uniform 0.25.
 
-    Sum over k MUST equal 1 for every edge when hats are trace normalized
+    Sum over k must equal 1 for every edge when hats are trace normalized
     and RL = sum_k hat_k. If sums differ from 1 by more than 1e-10, the
     upstream channel construction is broken.
     """

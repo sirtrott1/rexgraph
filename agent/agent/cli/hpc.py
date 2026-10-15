@@ -21,18 +21,24 @@ Usage:
 
 from __future__ import annotations
 
+from agent.data_paths import models_root
+
 import os
+import shlex
 import textwrap
 from pathlib import Path
 
 # Shared model cache
 
 def resolve_model_cache(platform_info=None) -> Path:
-    """Best location for model weights on HPC.
+    """Select explicit model storage, then cluster storage, then the user cache.
 
-    Checks $PROJECT, $WORK, $SCRATCH for shared storage.
-    Falls back to ~/.cache/rexgraph/models/.
+    Cluster directories are checked in PROJECT, WORK and SCRATCH order.
     """
+    if os.environ.get("REXGRAPH_MODELS_DIR") or os.environ.get("REXGRAPH_CACHE_DIR"):
+        cache = models_root()
+        cache.mkdir(parents=True, exist_ok=True)
+        return cache
     for env_var in ("PROJECT", "WORK", "SCRATCH"):
         shared = os.environ.get(env_var, "")
         if shared and os.path.isdir(shared):
@@ -40,7 +46,7 @@ def resolve_model_cache(platform_info=None) -> Path:
             cache.mkdir(parents=True, exist_ok=True)
             return cache
 
-    cache = Path.home() / ".cache" / "rexgraph" / "models"
+    cache = models_root()
     cache.mkdir(parents=True, exist_ok=True)
     return cache
 
@@ -77,8 +83,21 @@ def _header(job_name, partition, time_limit, mem, cpus, account, gpus=0, array_s
 
 def _activate(conda_env):
     return (
-        f"source activate {conda_env} 2>/dev/null || conda activate {conda_env} 2>/dev/null || true\n"
-        'export REXGRAPH_MODELS=$(python -c "from agent.cli.hpc import resolve_model_cache; print(resolve_model_cache())")\n'
+        f"REX_ENV={shlex.quote(str(conda_env))}\n"
+        'if [ -x "$REX_ENV/bin/python" ]; then\n'
+        '    export PATH="$REX_ENV/bin:$PATH"\n'
+        'elif command -v conda >/dev/null 2>&1; then\n'
+        '    eval "$(conda shell.bash hook)"\n'
+        '    conda activate "$REX_ENV"\n'
+        'elif command -v micromamba >/dev/null 2>&1; then\n'
+        '    eval "$(micromamba shell hook -s bash)"\n'
+        '    micromamba activate "$REX_ENV"\n'
+        'else\n'
+        '    echo "Environment unavailable: $REX_ENV" >&2\n'
+        '    exit 1\n'
+        'fi\n'
+        'REXGRAPH_MODELS=$(python -I -c "from agent.cli.hpc import resolve_model_cache; print(resolve_model_cache())")\n'
+        'export REXGRAPH_MODELS\n'
     )
 
 
@@ -155,7 +174,7 @@ def generate_slurm_serve(
 
         export CHAT_MODEL_URL="http://localhost:$PORT"
         export UNLIMITED_OCR_URL="http://localhost:$PORT"
-        python agent/run.py --host 0.0.0.0 --port 8000 --no-browser
+        python -I agent/run.py --host 0.0.0.0 --port 8000 --no-browser
 
         kill $GPU_PID 2>/dev/null
     """ % (port, model_id))
@@ -169,10 +188,9 @@ def generate_slurm_build(
     return _header("rexgraph-build", partition, time_limit, mem, 8, account) + "\n" + _activate(conda_env) + textwrap.dedent("""\
 
         cd ${SLURM_SUBMIT_DIR:-$(pwd)}
-        pip install -e . --no-build-isolation
-        pip install -e ./agent[server,ocr]
+        VENV_DIR="$(python -I -c 'import sys; print(sys.prefix)')" sh install.sh --profile standard --editable
 
-        python -c "
+        python -I -c "
 from rexgraph.graph import RexGraph
 rex = RexGraph.from_graph([0,1,0],[1,2,2])
 print(f'Build OK: {rex.nV}V {rex.nE}E betti={rex.betti}')

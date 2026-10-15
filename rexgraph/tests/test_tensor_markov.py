@@ -103,7 +103,7 @@ def test_exact_normalization_precedes_numeric_conversion(weight):
     np.testing.assert_allclose(view.apply(x), np.asarray(expected, float))
 
 
-def test_paper_pairwise_exact_field_is_a_numerical_regression_oracle():
+def test_pairwise_exact_field_is_a_numerical_regression_oracle():
     r = RexGraph.from_cells([5, [[i, i+1] for i in range(4)]])
     expected = [Q(438721, 1512560), Q(12461, 37814), Q(289, 1480),
                 Q(4913, 37814), Q(83521, 1512560)]

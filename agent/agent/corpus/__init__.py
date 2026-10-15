@@ -16,8 +16,8 @@ Usage:
     from agent.corpus import CorpusBuilder
 
     corpus = CorpusBuilder()
-    corpus.add_document("paper_2024.pdf", date="2024-01-15")
-    corpus.add_document("paper_2025.pdf", date="2025-06-01")
+    corpus.add_document("document_2024.pdf", date="2024-01-15")
+    corpus.add_document("document_2025.pdf", date="2025-06-01")
     corpus.build()
 
     # Cross-document void analysis (missing information)
@@ -236,8 +236,11 @@ class CorpusBuilder:
 
         str : the doc_id assigned
         """
+        explicit_id = doc_id is not None
         if doc_id is None:
             doc_id = _document_identity(source, text)
+        if explicit_id and any(doc.doc_id == doc_id for doc in self.documents):
+            raise ValueError(f"document ID already exists: {doc_id!r}")
 
         self.documents.append(DocumentRecord(
             doc_id=doc_id,
@@ -286,13 +289,15 @@ class CorpusBuilder:
 
         from rexgraph.document import build_document
 
+        explicit_id = doc_id is not None
+        if doc_id is None:
+            doc_id = _document_identity(source, text)
+        if explicit_id and any(doc.doc_id == doc_id for doc in self.documents):
+            raise ValueError(f"document ID already exists: {doc_id!r}")
         raw = text
         if raw is None:
             with open(source, encoding="utf-8", errors="replace") as fh:
                 raw = fh.read()
-        if doc_id is None:
-            doc_id = _document_identity(source, text)
-
         rex, info = build_document(raw, **build_kw)
         rec = DocumentRecord(
             doc_id=doc_id, source=str(source), date=date, text=raw,
@@ -422,6 +427,7 @@ class CorpusBuilder:
         from agent.pipeline import AnalysisPipeline
 
         for doc in self.documents:
+            doc.meta.pop("build_error", None)
             # Content addressed cache: skip rebuild + analysis when we've
             # seen identical input at this depth before.
             cache_key = None
@@ -482,7 +488,7 @@ class CorpusBuilder:
                     # should use is an open decision.
                     rex = build_rex_from_edges(
                         doc.edge_construction,
-                        face_selection=DOC_FACE_RULE,
+                        face_selection=self.adapter_kwargs.get("face_selection", DOC_FACE_RULE),
                         input_type=getattr(
                             doc.edge_construction, "input_type",
                             "edge_construction",
@@ -496,13 +502,16 @@ class CorpusBuilder:
                     elif doc.source and doc.source != "<text>":
                         rex = auto_rex(doc.source, **kw)
                     else:
+                        doc.meta["build_error"] = "No document source was supplied"
                         logger.warning("No source for %s, skipping", doc.doc_id)
                         continue
             except Exception as e:
+                doc.meta["build_error"] = str(e)
                 logger.warning("Failed to build rex for %s: %s", doc.doc_id, e)
                 continue
 
             if rex is None or rex.nE == 0:
+                doc.meta["build_error"] = "No document relations were constructed"
                 logger.warning("Empty complex for %s, skipping", doc.doc_id)
                 continue
 
@@ -1047,20 +1056,15 @@ class CorpusBuilder:
 
     # Cross dataset comparison
     def cross_dataset_comparison(self, metric: str = "bottleneck") -> dict:
-        """Compare structural invariants across *all* documents at once.
+        """Return persistence distances and structural measurements for documents.
 
-        Produces the multi dataset comparison the Poincaré critical surface
-        analysis needed: a pairwise persistence distance matrix plus a
-        per document invariant table (betti, Hodge fractions, kappa) and
-        shared entity / kappa correlation bridges.  Every distance comes
-        from the compiled ``_persistence`` kernels via
-        :meth:`persistence_distance`.
+        The result includes a pairwise distance matrix, per document Betti
+        numbers, Hodge energy fractions and mean coherence, together with
+        shared entity and coherence correlation data. Distances are computed
+        through persistence_distance using the compiled persistence kernels.
 
-        Parameters
-
-        metric : str
-            Which persistence-distance field to place in the matrix
-            ('bottleneck', 'wasserstein', or 'landscape_distance').
+        metric selects the field placed in the distance matrix: bottleneck,
+        wasserstein or landscape_distance.
         """
         self._ensure_built()
         docs = [d for d in self.documents if d.rex is not None]

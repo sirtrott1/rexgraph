@@ -1,14 +1,7 @@
-"""One engine per connection string, and a way to let them go.
+"""Check SQL engine reuse, disposal and application shutdown.
 
-get_engine cached in memory engines but built a NEW engine for every file backed call.
-An engine owns a connection pool, so a caller that asks per operation, as the workspace
-persistence layer does, opened one pool per save and abandoned every one of them. The
-cost was not only the leak: rebuilding the engine each time made a 25 test round trip
-take 7.05s that now takes 0.41s.
-
-The cache is process wide and long lived by design, which is what makes calling
-get_engine per operation correct. dispose_engines is how a process that is finished with
-a database actually releases them.
+A connection string reuses one engine and connection pool until dispose_engines
+releases it. Disposal also clears the cache when a pool raises during cleanup.
 """
 from __future__ import annotations
 
@@ -26,6 +19,38 @@ def test_the_same_file_uri_returns_the_same_engine(tmp_path):
     uri = f"sqlite:///{tmp_path / 'a.db'}"
     try:
         assert get_engine(uri) is get_engine(uri), "a new engine per call is a new pool"
+    finally:
+        dispose_engines()
+
+
+def test_concurrent_lookups_share_one_connection_pool(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    import time
+    from rexgraph.io import sql_bridge
+
+    original = sql_bridge._sa
+    create_engine, *remaining = original()
+    created = []
+    barrier = Barrier(4)
+
+    def delayed_create(*args, **kwargs):
+        time.sleep(0.01)
+        engine = create_engine(*args, **kwargs)
+        created.append(engine)
+        return engine
+
+    monkeypatch.setattr(sql_bridge, "_sa", lambda: (delayed_create, *remaining))
+
+    def lookup(_):
+        barrier.wait(timeout=10)
+        return get_engine(f"sqlite:///{tmp_path / 'concurrent.db'}")
+
+    try:
+        with ThreadPoolExecutor(4) as pool:
+            engines = list(pool.map(lookup, range(4)))
+        assert len(created) == 1
+        assert all(engine is engines[0] for engine in engines)
     finally:
         dispose_engines()
 
@@ -101,7 +126,7 @@ def test_the_server_lifespan_disposes_the_cache(tmp_path, monkeypatch):
 
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
     get_engine(f"sqlite:///{tmp_path / 'lifespan.db'}")
-    assert sql_bridge._ENGINE_CACHE, "the cache needs an entry for this to prove anything"
+    assert sql_bridge._ENGINE_CACHE, "the cache needs an entry to exercise eviction"
 
     with fastapi_testclient.TestClient(app):
         pass                     # entering and leaving runs startup and shutdown

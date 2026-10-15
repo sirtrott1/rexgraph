@@ -158,8 +158,6 @@ __all__ = [
     "relation_metric_curvature",
     "mesh_health",
     "harmonic_health",
-    "build_mtor_demo",
-    "write_demo_artifacts",
     "CellPaintingPlate",
     "DEFAULT_JUMP_SECTIONS",
     "JumpCellPaintingStudy",
@@ -226,9 +224,6 @@ def __getattr__(name):
     if name in fields:
         from importlib import import_module
         return getattr(import_module("." + fields[name], __name__), name)
-    if name in {"build_mtor_demo", "write_demo_artifacts"}:
-        from . import biomedical_demo
-        return getattr(biomedical_demo, name)
     if name in {
         "CellPaintingPlate", "DEFAULT_JUMP_SECTIONS", "JumpCellPaintingStudy", "load_jump_plate",
         "build_jump_cell_painting_temporal", "analyze_jump_delta",

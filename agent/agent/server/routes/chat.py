@@ -178,17 +178,18 @@ def _build_summary(rex, results: dict) -> str:
         e1 = eps.get("eps1_chain", 0)
         e3 = eps.get("eps3_equiweight")
         if e3 is not None:
-            lines.append(f"Axiom verification: chain={e1:.2e}, equiweight={e3:.2e}")
+            lines.append(f"Operator residuals: chain={e1:.2e}, equiweight={e3:.2e}")
 
     return "\n".join(lines)
 
 
 @router.get("/chat/{session_id}/metrics")
 async def chat_session_metrics(session_id: str, structural: bool = False):
-    """Per session information metrics: the trend of coherence/perplexity over turns,
-    plus per message metrics. Token metrics are free (always present). The structural
-    tier (~250 ms/message) is computed lazily and cached ONLY when `?structural=1` -
-    so the interface pays for it exactly when the user drills into structure."""
+    """Return session trends and available token metrics for each message.
+
+    With ``structural=True``, compute and retain structural message metrics when
+    they have not already been calculated for the session.
+    """
     _ws = None
     try:
         from agent.server.auth import get_auth_manager
@@ -317,7 +318,7 @@ async def chat(session_id: str, body: dict = Body(...)):
         # `default_store()` resolves REXGRAPH_RCDB_URI and is workspace scoped when auth
         # is on, so this reaches what was ingested rather than a throwaway. It comes last
         # for the same reason the workspace corpus does: a session that has its own
-        # document is asking about THAT document, and a store holding 61,353 others must
+        # document is asking about THAT document, and a store holding other records must
         # not answer over it.
         rc_store = None
         if not has_doc and corpus is None:

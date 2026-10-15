@@ -43,10 +43,10 @@ def test_equivalent_does_not_mean_determined():
     assert a.directions.entries == b.directions.entries == ((0, 0, Q(2**140+1, 7)),)
     with pytest.raises(UnderdeterminedSectionError):
         b.value()
-    proof = t.verify(n)
-    assert not any(proof['chain_residuals'])
-    assert proof['dependencies'] == (f.coefficient_digest, p.coefficient_digest, q.coefficient_digest)
-    assert 'requires exact live inputs' in proof['readout_status']
+    verification = t.verify(n)
+    assert not any(verification['chain_residuals'])
+    assert verification['dependencies'] == (f.coefficient_digest, p.coefficient_digest, q.coefficient_digest)
+    assert 'requires exact live inputs' in verification['readout_status']
     assert n.to_bytes() == t.original().to_bytes()
 
 
@@ -305,8 +305,8 @@ def test_historical_cutoff_and_permissions():
 def test_explicit_readout_side(side):
     r, f, p, q = fixture()
     raw = ReadoutEquivalence.check(f,p,q).to_bytes()
-    e = runtime(r,f=f,p=p,q=q,proof=raw,side=side)
-    text = 'FROM $r RETURN SECTION_CERTIFIED_OBSERVE($f,$p,$q,$proof,$side)'
+    e = runtime(r,f=f,p=p,q=q,verification=raw,side=side)
+    text = 'FROM $r RETURN SECTION_CERTIFIED_OBSERVE($f,$p,$q,$verification,$side)'
     if side == 'other':
         with pytest.raises(ValueError, match='side'):
             e.execute(parse(text))

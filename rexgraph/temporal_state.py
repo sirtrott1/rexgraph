@@ -354,7 +354,8 @@ def from_temporal_state(
 
     from rexgraph.graph import FaceDelta, TemporalDelta, TemporalRex
 
-    tensors = dict(state.tensors)
+    tensors = {name: np.array(value, copy=True, order="C")
+               for name, value in state.tensors.items()}
     codecs = header.get("tensor_codecs")
     if codecs is not None:
         if version < 3 or not isinstance(codecs, dict) or any(

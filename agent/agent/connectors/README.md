@@ -1,75 +1,74 @@
-# Connectors: the "adapt to any system" layer
+# Connectors
 
-A **connector** teaches the engine one system. It reads a source *read only* and
-returns a relational complex: the signed incidence `B₁` topology, optional `B₂`
-faces, and a `meta` dict of labels/edges/weights/modality. Everything else (the
-math, the store, the analyses) follows from that. The contract is small, stable,
-and the one thing a customer or the services team implements to onboard a new
-system. Proprietary connectors live *outside* the core and depend only on this
-seam, which is what keeps each integration auditable on its own and every paid
-onboarding a **known, testable quantity**.
+Connectors read source structure and return a relational complex with metadata.
+They expose relationships, labels, optional weights and faces through one
+interface. A connector reads its source without modifying it.
 
-## The contract
+## Installation
+
+From the repository root, `make install` includes the standard connector
+dependencies. Use `sh install.sh --extras warehouse` for cloud warehouse drivers.
+Other live sources may need their own database driver or broker client.
+
+```sh
+.venv/bin/rexgraph-connect list
+.venv/bin/python -I -m agent.connectors.template
+```
+
+The template runs an example with local data. See the
+[installation guide](../../../README.md#installation) for environment setup.
+
+## Contract
 
 ```python
-def read(self, source) -> tuple[rex, meta]
+def read(self, source) -> tuple[rex, meta]:
+    ...
 ```
 
-* `rex`: a built `RexGraph`, or the `(sources, targets)` edge endpoint arrays.
-* `meta`: required: `vertex_labels` (len `nV`), `edges` (len `nE`, `(src,dst)`
-  pairs), `source`. Optional: `weights` (len `nE`), `modality` (len `nE`),
-  `faces` (dense `B₂`). Build it with `BaseConnector.result(...)`, which enforces
-  the length invariants so a malformed connector fails at the source, not deep in
-  the engine.
+`rex` is a `RexGraph` or a pair of source and target index arrays. Required
+metadata consists of `vertex_labels`, `edges` and `source`. Labels match the
+vertex count and edges match the relation count. Optional `weights` and
+`modality` entries match the relation count; `faces` supplies an upper boundary.
+`BaseConnector.result` checks these metadata lengths.
 
-`capabilities()` advertises what the connector can supply (`weights`, `modality`,
-`faces`, and the URI `schemes` it serves). Invariants every connector must keep:
-read only, structure only (never row/cell values), and `∂²=0` when it emits faces.
+`capabilities()` declares weights, modality, faces and URI schemes. Connectors
+that emit faces must preserve `B1 B2 = 0`. Source values are excluded from the
+structural connector contract.
 
-## Write one
+## Custom connectors
 
-Copy the template and fill the two TODOs:
+Implement `BaseConnector.read` and declare `CAPABILITIES`. The source template
+is [template.py](template.py). From the repository root:
 
-```bash
-cp agent/connectors/template.py agent/connectors/my_system.py
-python -m agent.connectors.template          # see the worked example run
+```sh
+cp agent/agent/connectors/template.py agent/agent/connectors/my_system.py
 ```
 
-## Validate it
-
-The harness turns an integration into a pass/fail report: contract shape, builds
-in the engine, chain condition `∂²=0`, Betti/signature, RCDB round trip, a
-read only probe, and capability consistency:
+Validate the implementation against a representative source:
 
 ```python
 from agent.connectors.validate import validate_connector
-assert validate_connector(MyConnector(), my_source).ok
+
+report = validate_connector(MyConnector(), my_source)
+assert report.ok
 ```
 
-```bash
-python -m agent.connectors.validate my.module:MyConnector [source]
-```
+The report checks metadata, complex construction, boundary closure, structural
+signature, RCDB persistence, source write behavior and capability declarations.
+A local fixture establishes behavior for that fixture; live access still needs
+validation against the configured service.
 
-## Open one by URI
+## Available connectors
 
-```python
-from agent.connectors import open_connector
-conn = open_connector("postgresql://host/db")          # -> SQLConnector
-conn = open_connector("sqlite:///x", with_weights=True)
-```
+| Connector | Sources | Live dependencies |
+| --- | --- | --- |
+| `SQLConnector` | SQLite, PostgreSQL, MySQL, MariaDB, Oracle, SQL Server | SQLAlchemy and the selected database driver |
+| `WarehouseConnector` | Snowflake, BigQuery, Redshift, Databricks | Agent `warehouse` extra |
+| `DocumentConnector` | MongoDB | pymongo |
+| `SemanticConnector` | RDF and OWL declarations | Source specific |
+| `GenericConnector` | Edge lists and tables | Source specific |
+| `GraphConnector` | Neo4j | neo4j |
+| `StreamConnector` | Kafka and Pulsar | Broker client |
 
-## What ships
-
-| Connector | Shape | Schemes | In sandbox |
-|-----------|-------|---------|------------|
-| `SQLConnector` | relational DBs | sqlite, postgresql, mysql, mariadb, oracle, mssql | yes (SQLite) |
-| `WarehouseConnector` | cloud warehouses | snowflake, bigquery, redshift, databricks | yes (SQLite stand in) |
-| `DocumentConnector` | document/NoSQL | mongodb | yes (in memory) |
-| `SemanticConnector` | RDFS/OWL | ontology, rdf, owl | yes (in memory triples) |
-| `GenericConnector` | edge/table long tail | edges, table | yes (in memory / CSV) |
-| `GraphConnector` | property graphs | neo4j, bolt | yes, shape only (live needs driver) |
-| `StreamConnector` | streaming | kafka, pulsar | yes, shape only (live needs client) |
-
-The warehouse/graph/stream live paths need a driver or broker from the host
-environment; their *shape* is validated here against in memory stand ins, so
-implementing the live read is a wiring task against an already passing contract.
+`open_connector(uri, **options)` selects a connector by URI scheme. Connection
+options are passed to the selected implementation.

@@ -299,7 +299,7 @@ def test_structure_constants_place_the_product_in_coordinates():
 
 #### the Gram determinant counts spanning trees
 def _spanning_trees(nV, pairs):
-    """Matrix Tree: any cofactor of L0, computed exactly and independently."""
+    """Compute a cofactor of L0 exactly for an independent spanning tree count."""
     from fractions import Fraction
 
     from rexgraph.rational_trig import bareiss_determinant
@@ -315,7 +315,7 @@ def _spanning_trees(nV, pairs):
 
 def test_the_frame_gram_determinant_counts_spanning_trees():
     """With no faces the frame is the whole cycle space, and its Gram determinant
-    is the spanning tree count. Checked against the Matrix Tree cofactor, which
+    is the spanning tree count. Checked against an independent Laplacian cofactor, which
     shares no code with the frame."""
     import itertools
 
@@ -332,7 +332,7 @@ def test_the_frame_gram_determinant_counts_spanning_trees():
         if r.betti[0] != 1:
             continue
         assert harmonic_gram_det(r) == _spanning_trees(nV, pairs), (nV, m)
-    # and the complete graphs, where the count is Cayley's n^(n-2)
+    # and the complete graphs, where the expected count is n^(n-2)
     for n in (4, 5, 6, 7, 8):
         e = list(itertools.combinations(range(n), 2))
         r = RexGraph(sources=np.array([a for a, b in e], np.int32),

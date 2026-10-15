@@ -110,12 +110,8 @@ extern "C" int ternary_free(void* ptr) { return (int)hipFree(ptr); }
 // v stays in global memory because it is generally too large for LDS, but it is read
 // by every block and lands in cache.
 //
-// BLK is how many rows share one read of v. Four is measured, not assumed: at 4 the
-// v traffic is 239 GB/s on a device that streams 218, so v is the ceiling, and the
-// obvious inference is that 8 would halve it and go faster. It does not. At 8 the
-// traffic falls to 106 GB/s and throughput falls with it, 119.5 to 106.0 Gentry/s,
-// because eight accumulators and a 16 KB reduction cost more occupancy than the
-// halved traffic buys. The constraint moves from bandwidth to residency in between.
+// BLK controls the rows sharing each vector read. The fixed block size
+// balances vector reuse against accumulator and reduction storage.
 #define TERNARY_F64_BLK 4
 
 template <typename Scalar>
@@ -131,7 +127,8 @@ ternary_float_kernel(const uint64_t* __restrict__ P,
     const int tid = threadIdx.x;
     const int nth = blockDim.x;
     const size_t r0 = (size_t)blockIdx.x * TERNARY_F64_BLK;
-    const int nrow = (int)min((size_t)TERNARY_F64_BLK, (size_t)nrows - r0);
+    const size_t remaining = (size_t)nrows - r0;
+    const int nrow = remaining < TERNARY_F64_BLK ? (int)remaining : TERNARY_F64_BLK;
 
     const size_t vector = blockIdx.y;
     V += vector * (size_t)nw * 64;

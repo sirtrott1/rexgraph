@@ -393,7 +393,7 @@ class RCFEResult(NamedTuple):
     strain: float
     """Total strain S = sum C(e) * RL[e,e]."""
     bianchi_ok: bool
-    """Whether Bianchi identity B1 diag(C) B2 = 0 holds."""
+    """Whether the weighted boundary residual B1 diag(C) B2 is below tolerance."""
     bianchi_residual: float
     """Max absolute entry of B1 diag(C) B2."""
 

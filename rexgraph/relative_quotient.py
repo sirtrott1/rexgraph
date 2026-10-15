@@ -17,7 +17,7 @@ from .type_accession import CoordinateSpace
 
 @dataclass(frozen=True, eq=False)
 class RelativeQuotient:
-    """A full relative tower, original coordinate maps and its projection proof."""
+    """A full relative tower, original coordinate maps and its verified projection."""
 
     projection: object
     cell_maps: tuple
@@ -105,5 +105,5 @@ def relative_quotient(selection):
                    for k, keys in enumerate(kept))
     target = CoordinateComplex(spaces, boundaries)
     maps = tuple(tuple((new, old, 1) for new, old in enumerate(keys)) for keys in kept)
-    proof = GradedMap(domain, target, maps).verify()
-    return RelativeQuotient(proof, kept, removed)
+    projection = GradedMap(domain, target, maps).verify()
+    return RelativeQuotient(projection, kept, removed)

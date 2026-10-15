@@ -3,7 +3,7 @@
 rexgraph run: headless pipeline for CLI and HPC batch processing.
 
 Usage:
-    python -m agent.cli.run_pipeline paper.pdf
+    python -m agent.cli.run_pipeline document.pdf
     python -m agent.cli.run_pipeline *.pdf --depth standard --backend tesseract
     python -m agent.cli.run_pipeline doc1.pdf doc2.pdf --query "What is the main result?"
     python -m agent.cli.run_pipeline --input-dir /data/pdfs --output results.json

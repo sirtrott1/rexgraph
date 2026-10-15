@@ -1,130 +1,72 @@
-# RexGraph - build, install, serve
+# RexGraph installation and development commands.
+.DEFAULT_GOAL := help
 
-# Auto-detects GPU (ROCm or CUDA). Just run `make install`.
+VENV_DIR ?= $(CURDIR)/.venv
+PYTHON ?= $(VENV_DIR)/bin/python
+BASE_PYTHON ?= python3
+INSTALLER ?= auto
+BUILD_JOBS ?= 2
+GPU_BACKEND ?= auto
+NATIVE_HIP ?= auto
+TEST_ARGS ?=
+PIP = "$(PYTHON)" -I -m pip
+INSTALL = VENV_DIR="$(VENV_DIR)" INSTALLER="$(INSTALLER)" PYTHON="$(BASE_PYTHON)" BUILD_JOBS="$(BUILD_JOBS)" sh install.sh
 
-# Install targets map to the agent profiles (see the README install table):
-# make install           core + agent[server] (portable, runtime only)
-# make install-standard  + full local deployment (agent[standard])
-# make install-ml        + torch fine-tuning stack (agent[ml])
-# make install-gpu       + torch built for the detected GPU
-# make install-all       + everything on CPU (agent[all])
-
-# Or use pip directly for precise control:
-# pip install .                       rexgraph core
-# pip install -e "./agent[server]"    server only
-# pip install -e "./agent[standard]"  full local deployment
-# pip install -e "./agent[all]"       everything on CPU
-
-# See `make help` for all targets.
-
-PYTHON ?= python3
-PIP ?= $(PYTHON) -m pip
-PYTEST ?= $(PYTHON) -m pytest
-
-# GPU auto-detection
+# GPU information. Select the PyTorch wheel index explicitly for GPU installs.
 HAS_ROCM := $(shell command -v rocminfo >/dev/null 2>&1 && echo 1 || echo 0)
 HAS_CUDA := $(shell command -v nvidia-smi >/dev/null 2>&1 && echo 1 || echo 0)
+GPU := $(if $(filter 1,$(HAS_ROCM)),rocm,$(if $(filter 1,$(HAS_CUDA)),cuda,cpu))
+TORCH_URL = $(TORCH_INDEX_URL)
 
-ifeq ($(HAS_ROCM),1)
-  GPU := rocm
-  TORCH_URL := https://download.pytorch.org/whl/rocm6.2
-else ifeq ($(HAS_CUDA),1)
-  GPU := cuda
-  TORCH_URL := https://download.pytorch.org/whl/cu124
-else
-  GPU := cpu
-  TORCH_URL :=
-endif
+.PHONY: install install-core install-server install-standard install-ml install-dev install-dev-full install-native install-gpu install-train install-all build verify python system
+install install-standard:
+	$(INSTALL) --profile standard
 
-# Install
+install-core:
+	$(INSTALL) --profile core
 
-# Build backend deps (needed for editable meson-python installs, which use
-# --no-build-isolation). Kept as a prerequisite so a fresh venv just works.
-.PHONY: _build-deps
-_build-deps:
-	$(PIP) install "meson-python>=0.16" "meson>=1.3" "cython>=3.0" "numpy>=1.24"
+install-server:
+	$(INSTALL) --profile server
 
-.PHONY: install
-install: _build-deps
-	$(PIP) install -e . --no-build-isolation
-	$(PIP) install -e "./agent[server]"
-	@echo ""
-	@echo "  Installed rexgraph + agent (runtime, GPU: $(GPU))"
-	@echo "  Run: make serve"
-	@echo ""
-	@echo "  Optional profiles:"
-	@echo "    make install-standard  full local deployment (schema, connectors, OCR, YAML)"
-	@echo "    make install-ml        torch fine-tuning + HuggingFace stack"
-	@echo "    make install-dev       everything needed to run the test suite"
-	@echo "    make install-native    machine-optimized build (-march=native, not portable)"
-	@echo "    make install-gpu       torch built for the detected GPU ($(GPU))"
-	@echo "    make install-all       everything on CPU"
+install-ml:
+	$(INSTALL) --profile ml
 
-# Full local deployment: the standard agent profile (UI, schema, connectors,
-# OCR, training export, YAML). No torch, no cloud-warehouse drivers.
-.PHONY: install-standard
-install-standard: _build-deps
-	$(PIP) install -e . --no-build-isolation
-	$(PIP) install -e "./agent[standard]"
-	@echo "  Installed rexgraph + agent[standard] (full local deployment, no torch)"
+install-dev:
+	$(INSTALL) --profile dev
 
-# The torch ML stack: rexgraph.nn substrate + the agent ml profile (LoRA
-# fine-tuning, HuggingFace analysis). Use install-gpu for a GPU torch build.
-.PHONY: install-ml
-install-ml: _build-deps
-	$(PIP) install -e ".[nn]" --no-build-isolation
-	$(PIP) install -e "./agent[ml]"
-	@echo "  Installed the torch ML stack (rexgraph.nn + agent[ml])."
-	@echo "  For a GPU torch build: make install-gpu"
+install-dev-full:
+	$(INSTALL) --profile dev-full
 
-# Full development/test environment: every optional runtime dep plus the test
-# tooling for BOTH packages. This is the target that pulls in pytest, pandas,
-# h5py, zarr, pyarrow, sqlalchemy, fastapi, httpx, etc.
-.PHONY: install-dev
-install-dev: _build-deps
-	$(PIP) install -e ".[all]" --no-build-isolation
-	$(PIP) install -e "./agent[server,dev]"
-	@echo ""
-	@echo "  Dev environment ready. Run: make test"
+install-native:
+	$(INSTALL) --profile standard --native
 
-# Machine-optimized build: -march=native + -ffast-math (faster, NOT portable).
-.PHONY: install-native
-install-native: _build-deps
-	$(PIP) install -e . --no-build-isolation -Csetup-args=-Dnative=true
-	$(PIP) install -e "./agent[server]"
-	@echo "  Installed rexgraph (native/-march build) + agent"
+install-gpu:
+	GPU_BACKEND="$(GPU_BACKEND)" NATIVE_HIP="$(NATIVE_HIP)" REQUIRE_GPU=1 TORCH_INDEX_URL="$(TORCH_INDEX_URL)" $(INSTALL) --profile ml --gpu "$(GPU_BACKEND)"
 
-# Compile/refresh the Cython extensions in place (portable flags).
-.PHONY: build
-build: _build-deps
-	$(PIP) install -e . --no-build-isolation
-	@echo "  Extensions built (portable). Use 'make install-native' for -march=native."
-
-.PHONY: install-gpu
-install-gpu: install
-ifneq ($(GPU),cpu)
-	$(PIP) install torch torchvision torchaudio --index-url $(TORCH_URL)
-	@echo "  PyTorch installed for $(GPU)"
-else
-	@echo "  No GPU detected. Skipping torch."
-	@echo "  OCR uses tesseract (CPU). Install GPU packages manually if needed."
-endif
-
-.PHONY: install-train
 install-train:
-	$(PIP) install -e ./agent[training]
-	@echo "  safetensors installed for training export"
+	$(INSTALL) --profile standard --extras training
 
-.PHONY: install-all
-install-all: install
-	$(PIP) install -e ".[all]" --no-build-isolation
-	$(PIP) install -e "./agent[all]"
-ifneq ($(GPU),cpu)
-	$(PIP) install torch torchvision torchaudio --index-url $(TORCH_URL)
-endif
-	@echo "  All CPU packages installed (GPU: $(GPU))"
+install-all:
+	$(INSTALL) --profile all
 
-# OCR Server (Unlimited-OCR / DeepSeek-OCR-2)
+build:
+	$(INSTALL) --profile core --editable
+
+verify:
+	"$(PYTHON)" -I scripts/verify_install.py --profile $(or $(PROFILE),auto)
+	$(PIP) check
+
+.PHONY: doctor
+doctor:
+	@"$(PYTHON)" -I scripts/check_setup.py $(ARGS)
+
+python:
+	"$(PYTHON)" -I
+
+system:
+	"$(PYTHON)" -I -c "from system.server.launch import main; main()" $(ARGS)
+
+# OCR server and model downloads
 
 .PHONY: install-ocr-server
 install-ocr-server:
@@ -137,11 +79,19 @@ ifeq ($(GPU),cpu)
 	@echo "  For CPU-only OCR, install tesseract: sudo apt install tesseract-ocr"
 	@exit 1
 endif
-	$(PIP) install torch torchvision torchaudio --index-url $(TORCH_URL)
+	@test -n "$(TORCH_URL)" || { echo "Set TORCH_INDEX_URL for this GPU."; exit 1; }
+ifeq ($(GPU),rocm)
+	@test -n "$(VLLM_WHEEL_URL)" || { echo "Set VLLM_WHEEL_URL to a compatible ROCm wheel from https://docs.vllm.ai/en/latest/getting_started/installation/gpu/"; exit 1; }
+endif
+	$(PIP) install --upgrade --force-reinstall torch torchvision torchaudio --index-url "$(TORCH_URL)"
+ifeq ($(GPU),rocm)
+	$(PIP) install "$(VLLM_WHEEL_URL)" huggingface-hub
+else
 	$(PIP) install vllm huggingface-hub
+endif
 	@echo ""
 	@echo "  Downloading DeepSeek-OCR-2 (~8GB)..."
-	$(PYTHON) -c "from huggingface_hub import snapshot_download; from pathlib import Path; snapshot_download('deepseek-ai/DeepSeek-OCR-2', local_dir=str(Path.home() / '.cache/rexgraph/models/deepseek-ai--DeepSeek-OCR-2'), local_dir_use_symlinks=False)"
+	"$(PYTHON)" -I -c "from huggingface_hub import snapshot_download; from agent.data_paths import models_root; snapshot_download('deepseek-ai/DeepSeek-OCR-2', local_dir=str(models_root() / 'deepseek-ai--DeepSeek-OCR-2'))"
 	@echo ""
 	@echo "  Done. OCR server ready."
 	@echo "  Start:  make ocr-serve"
@@ -151,14 +101,15 @@ endif
 install-got-ocr:
 	@echo "  Installing GOT-OCR2.0 dependencies..."
 ifneq ($(GPU),cpu)
-	$(PIP) install torch torchvision torchaudio --index-url $(TORCH_URL)
+	@test -n "$(TORCH_URL)" || { echo "Set TORCH_INDEX_URL for this GPU."; exit 1; }
+	$(PIP) install --upgrade --force-reinstall torch torchvision torchaudio --index-url "$(TORCH_URL)"
 endif
 	$(PIP) install transformers accelerate tiktoken verovio
 	@echo "  Downloading GOT-OCR2.0 model (~4GB)..."
-	$(PYTHON) -c "from transformers import AutoProcessor, GotOcr2ForConditionalGeneration; print('  Downloading processor...'); AutoProcessor.from_pretrained('stepfun-ai/GOT-OCR-2.0-hf', trust_remote_code=True); print('  Downloading model weights...'); GotOcr2ForConditionalGeneration.from_pretrained('stepfun-ai/GOT-OCR-2.0-hf', trust_remote_code=True)"
+	"$(PYTHON)" -I -c "from transformers import AutoProcessor, GotOcr2ForConditionalGeneration; print('  Downloading processor...'); AutoProcessor.from_pretrained('stepfun-ai/GOT-OCR-2.0-hf', trust_remote_code=True); print('  Downloading model weights...'); GotOcr2ForConditionalGeneration.from_pretrained('stepfun-ai/GOT-OCR-2.0-hf', trust_remote_code=True)"
 	@echo ""
-	@echo "  GOT-OCR2.0 ready. Model cached in ~/.cache/huggingface/hub/"
-	@echo "  No server needed - runs directly on GPU during pipeline."
+	@echo "  GOT-OCR2.0 ready in the configured Hugging Face cache."
+	@echo "  Runs directly during the pipeline."
 
 .PHONY: ocr-serve
 ocr-serve:
@@ -166,29 +117,15 @@ ocr-serve:
 	@echo "  Starting DeepSeek-OCR-2 on port 10000..."
 	@echo "  (This loads ~8GB into VRAM. Leave running while using the web UI.)"
 	@echo ""
-	cd agent && $(PYTHON) -c "from agent.cli.serve import serve; serve(foreground=True)"
+	"$(PYTHON)" -I -c "from agent.cli.serve import serve; serve(foreground=True)"
 
 .PHONY: ocr-stop
 ocr-stop:
-	cd agent && $(PYTHON) -c "from agent.cli.serve import stop; stop()"
+	"$(PYTHON)" -I -c "from agent.cli.serve import stop; stop()"
 
 .PHONY: ocr-status
 ocr-status:
-	@cd agent && $(PYTHON) -c "\
-import json, shutil, os; \
-from pathlib import Path; \
-s = {}; \
-s['gpu'] = 'rocm' if shutil.which('rocminfo') else ('cuda' if shutil.which('nvidia-smi') else 'cpu'); \
-try: import vllm; s['vllm'] = True \
-except: s['vllm'] = False; \
-try: import torch; s['torch'] = torch.__version__; s['torch_cuda'] = torch.cuda.is_available() \
-except: s['torch'] = False; \
-m = Path.home() / '.cache/rexgraph/models/deepseek-ai--DeepSeek-OCR-2'; \
-s['deepseek_ocr2'] = m.exists() and any(m.iterdir()) if m.exists() else False; \
-s['tesseract'] = shutil.which('tesseract') is not None; \
-try: import transformers; s['got_ocr'] = True \
-except: s['got_ocr'] = False; \
-print(json.dumps(s, indent=2))"
+	@"$(PYTHON)" -I -m agent.cli.ocr status
 
 # Serve
 
@@ -197,7 +134,7 @@ serve:
 	@echo ""
 	@echo "  http://127.0.0.1:8000"
 	@echo ""
-	cd agent && $(PYTHON) run.py --no-browser $(if $(SSL_KEY),--ssl-key $(SSL_KEY)) $(if $(SSL_CERT),--ssl-cert $(SSL_CERT))
+	"$(PYTHON)" -I agent/run.py --no-browser $(ARGS) $(if $(SSL_KEY),--ssl-key "$(SSL_KEY)") $(if $(SSL_CERT),--ssl-cert "$(SSL_CERT)")
 
 .PHONY: serve-https
 serve-https:
@@ -205,116 +142,108 @@ serve-https:
 	@echo ""
 	@echo "  https://127.0.0.1:8000"
 	@echo ""
-	cd agent && $(PYTHON) run.py --no-browser --ssl-key ../certs/server.key --ssl-cert ../certs/server.crt
+	"$(PYTHON)" -I agent/run.py --no-browser --ssl-key certs/server.key --ssl-cert certs/server.crt $(ARGS)
 
 .PHONY: gen-cert
 gen-cert:
-	cd agent && $(PYTHON) -m agent.cli.auth gen-cert --out ../certs
+	"$(PYTHON)" -I -m agent.cli.auth gen-cert --out certs
 
 .PHONY: serve-dev
 serve-dev:
-	cd agent && $(PYTHON) run.py --reload --no-browser
+	"$(PYTHON)" -I agent/run.py --reload --no-browser $(ARGS)
 
 .PHONY: gpu-serve
 gpu-serve:
-	rexgraph-ocr serve
+	"$(VENV_DIR)/bin/rexgraph-ocr" serve
 
 # Test
 
 
 .PHONY: test-agent
 test-agent:
-# agent/pyproject.toml sets testpaths = ["tests"], and five modules import fixtures
-# from a sibling as `tests.test_x`, so the suite resolves from agent/ and not from
-# the repo root. Same reason test-agent-cli below changes directory.
-	cd agent && $(PYTEST) tests/ -q
+# Run against the selected wheel or declared editable installation.
+	"$(PYTHON)" -I scripts/test_installed.py --allow-editable --package rexgraph --package rcdb --package agent -- agent/tests -q $(TEST_ARGS)
 
 .PHONY: test-agent-cli
 test-agent-cli:
-	cd agent && $(PYTHON) -m agent.cli.test_all --verbose
+	"$(PYTHON)" -I -m agent.cli.test_all --verbose
 
 .PHONY: test-agent-ocr
 test-agent-ocr:
-	cd agent && $(PYTHON) -m agent.cli.test_all --only ocr
+	"$(PYTHON)" -I -m agent.cli.test_all --only ocr
 
 .PHONY: test-agent-pipeline
 test-agent-pipeline:
-	cd agent && $(PYTHON) -m agent.cli.test_all --only pipeline
+	"$(PYTHON)" -I -m agent.cli.test_all --only pipeline
 
 # CLI Pipeline (headless, no web UI)
 
 .PHONY: run
 run:
-	@echo "Usage: make run FILES='paper.pdf' [QUERY='what is...'] [DEPTH=standard] [BACKEND=tesseract]"
-	cd agent && $(PYTHON) -m agent.cli.run_pipeline $(FILES) \
+	@echo "Usage: make run FILES='document.pdf' [QUERY='what is...'] [DEPTH=standard] [BACKEND=tesseract]"
+	"$(PYTHON)" -I -m agent.cli.run_pipeline $(FILES) \
 		$(if $(QUERY),--query "$(QUERY)") \
 		$(if $(DEPTH),--depth $(DEPTH)) \
 		$(if $(BACKEND),--backend $(BACKEND))
 
-# HPC (Cheaha / SLURM)
+# SLURM job templates
 
 
 .PHONY: hpc-job-ocr
 hpc-job-ocr:
 	@echo "Generating SLURM job: ocr_batch.sbatch"
-	cd agent && $(PYTHON) -c "from agent.cli.hpc import write_template; write_template('ocr_batch', partition='$(or $(PARTITION),pascalnodes)')"
+	"$(PYTHON)" -I -c "import sys; from agent.cli.hpc import write_template; write_template('ocr_batch', partition='$(or $(PARTITION),batch)', conda_env=sys.prefix)"
 
 .PHONY: hpc-job-serve
 hpc-job-serve:
 	@echo "Generating SLURM job: serve.sbatch"
-	cd agent && $(PYTHON) -c "from agent.cli.hpc import write_template; write_template('serve', partition='$(or $(PARTITION),pascalnodes)')"
+	"$(PYTHON)" -I -c "import sys; from agent.cli.hpc import write_template; write_template('serve', partition='$(or $(PARTITION),batch)', conda_env=sys.prefix)"
 
 .PHONY: hpc-job-pipeline
 hpc-job-pipeline:
 	@echo "Generating SLURM job: pipeline.sbatch"
-	cd agent && $(PYTHON) -c "from agent.cli.hpc import write_template; write_template('pipeline_batch', partition='$(or $(PARTITION),pascalnodes)')"
+	"$(PYTHON)" -I -c "import sys; from agent.cli.hpc import write_template; write_template('corpus', output='pipeline.sbatch', partition='$(or $(PARTITION),batch)', conda_env=sys.prefix)"
 
 .PHONY: test
-test: test-rexgraph test-agent
+test: test-rexgraph test-agent test-rcdb test-rcql test-system
 
 .PHONY: test-rexgraph
 test-rexgraph:
-	$(PYTEST) rexgraph/tests/ -q
+	"$(PYTHON)" -I scripts/test_installed.py --allow-editable --package rexgraph -- rexgraph/tests -q $(TEST_ARGS)
 
-.PHONY: test-quick
-test-quick:
-	@$(PYTHON) -c "\
-from rexgraph.graph import RexGraph; \
-rex = RexGraph.from_graph([0,1,0],[1,2,2]); \
-print('rexgraph: %dV %dE betti=%s kappa=%.3f' % (rex.nV, rex.nE, rex.betti, rex.coherence.mean())); \
-from agent.builder import AgentBuilder; \
-print('agent:    %d steps, %d templates' % (len(AgentBuilder.available_steps()), 5)); \
-print('GPU:      $(GPU)'); \
-print('OK'); \
-"
+.PHONY: test-quick test-rcdb test-rcql test-system
+test-quick: verify
+
+test-rcdb:
+	"$(PYTHON)" -I scripts/test_installed.py --allow-editable --package rexgraph --package rcdb -- rcdb/tests -q $(TEST_ARGS)
+
+test-rcql:
+	"$(PYTHON)" -I scripts/test_installed.py --allow-editable --package rexgraph --package rcql -- rcql/tests -q $(TEST_ARGS)
+
+test-system:
+	"$(PYTHON)" -I scripts/test_installed.py --allow-editable --package rexgraph --package rcql --package system -- system/tests -q $(TEST_ARGS)
 
 # GPU
 
-.PHONY: gpu-status
+.PHONY: gpu-status verify-gpu
 gpu-status:
-	@echo "Detected: $(GPU)"
-ifeq ($(HAS_ROCM),1)
-	@rocminfo 2>/dev/null | grep -E 'Name:|Marketing' | head -4
-endif
-ifeq ($(HAS_CUDA),1)
-	@nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null
-endif
-ifeq ($(GPU),cpu)
-	@echo "No GPU found. OCR uses tesseract. Models need a GPU."
-endif
+	"$(PYTHON)" -I -m rexgraph.gpu_preflight --diagnose --json
+
+verify-gpu:
+	"$(PYTHON)" -I scripts/setup_gpu.py --verify --require-gpu --backend "$(GPU_BACKEND)" $(ARGS)
 
 # HPC
 
 .PHONY: hpc-setup
 hpc-setup:
-	bash agent/setup_hpc.sh --gpu $(GPU)
+	VENV_DIR="$(VENV_DIR)" sh agent/setup_hpc.sh
 
 .PHONY: hpc-templates
 hpc-templates:
 	@mkdir -p slurm/
-	@$(PYTHON) -c "\
-from agent.cli.hpc import write_template; \
-[write_template(t, output='slurm/%s.sbatch' % t) for t in \
+	@"$(PYTHON)" -I -c "\
+import sys; from agent.cli.hpc import write_template; \
+[write_template(t, conda_env=sys.prefix, output='slurm/%s.sbatch' % t) for t in \
  ['build','serve','ocr_batch','corpus','training','array']]"
 	@echo "  6 templates in slurm/"
 
@@ -322,68 +251,43 @@ from agent.cli.hpc import write_template; \
 
 .PHONY: clean
 clean:
-	find . -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
-	find . -name '*.pyc' -delete 2>/dev/null || true
-	find . -name '*.egg-info' -type d -exec rm -rf {} + 2>/dev/null || true
-	find . -name '.pytest_cache' -type d -exec rm -rf {} + 2>/dev/null || true
-	rm -rf build/ 2>/dev/null || true
-	rm -f 'file::memory:' 2>/dev/null || true
+	"$(BASE_PYTHON)" -I scripts/clean_cache.py --environment "$(VENV_DIR)"
 	@echo "Clean"
 
 # Help
 
 .PHONY: help
 help:
-	@echo ""
-	@echo "  rexgraph"
-	@echo ""
-	@echo "  Install:"
-	@echo "    make install          rexgraph + agent server (portable, runtime only)"
-	@echo "    make install-standard full local deployment (schema, connectors, OCR, YAML)"
-	@echo "    make install-ml       torch fine-tuning + HuggingFace stack"
-	@echo "    make install-dev      + all test deps for both packages (pytest, pandas, fastapi...)"
-	@echo "    make install-native   machine-optimized build (-march=native, NOT portable)"
-	@echo "    make install-gpu      + PyTorch for the detected GPU"
-	@echo "    make install-all      everything on CPU"
-	@echo ""
-	@echo "  Run:"
-	@echo "    make serve          start server on localhost:8000"
-	@echo "    make serve-dev      start with auto-reload"
-	@echo "    make serve-https    start with HTTPS"
-	@echo "    make gpu-serve      start GPU model server (vLLM)"
-	@echo ""
-	@echo "  Test:"
-	@echo "    make test           full pytest suite (rexgraph/tests + agent/tests)"
-	@echo "    make test-rexgraph  rexgraph kernels only"
-	@echo "    make test-agent     agent unit tests (pytest)"
-	@echo "    make test-agent-cli agent integration runner (agent.cli.test_all)"
-	@echo "    make test-quick     fast smoke test"
-	@echo ""
-	@echo "  Info:"
-	@echo "    make gpu-status     show GPU detection"
-	@echo "    make help           this message"
-	@echo ""
-	@echo "  HPC:"
-	@echo "    make hpc-setup      full SLURM environment setup"
-	@echo "    make hpc-templates  generate .sbatch scripts"
-	@echo ""
-	@echo "  Or use pip directly (see the README install table):"
-	@echo "    pip install .                             rexgraph core"
-	@echo "    pip install -e './agent[server]'          server only"
-	@echo "    pip install -e './agent[standard]'        full local deployment"
-	@echo "    pip install -e './agent[all]'             everything on CPU"
-	@echo ""
+	@echo "RexGraph"
+	@echo "  make install           Install all five packages and the standard Agent profile"
+	@echo "  make install-core      Install Core only"
+	@echo "  make install-server    Install all five packages with the Agent server profile"
+	@echo "  make install-dev       Install editable packages and test dependencies"
+	@echo "  make install-dev-full  Add ML, TensorFlow, molecular, analytics and integration tests"
+	@echo "  make install-ml        Add the CPU PyTorch and Hugging Face stack"
+	@echo "  make install-gpu       Detect the GPU and install ML with its compute runtime"
+	@echo "  make verify-gpu        Check GPU calculations and required native kernels"
+	@echo "  make install-all       Install all declared Agent profile dependencies"
+	@echo "  make install-native    Compile for this CPU with relaxed floating point rules"
+	@echo "  make serve             Start Agent at http://127.0.0.1:8000"
+	@echo "  make system            Start System at http://127.0.0.1:8010"
+	@echo "  make python            Open Python with the installed packages"
+	@echo "  make verify            Check compiled operators, UI assets and dependencies"
+	@echo "  make doctor            List optional dependencies, tools and data paths"
+	@echo "  make test              Test Core, Agent, RCDB, RCQL and System"
+	@echo "  make hpc-setup         Install and generate SLURM templates"
+	@echo "Settings: VENV_DIR, INSTALLER, BASE_PYTHON, BUILD_JOBS, TORCH_INDEX_URL"
+	@echo "Installer options: sh install.sh --help"
+
 # Versioning
 #
-# Five files declare the version and each serves something that cannot read the others,
-# so they are set together or they drift. They already did: meson.build sat at 1.0.1
-# through two 1.0.6 releases. test_version_consistency.py fails if they disagree.
+# Update package and build versions together; the consistency test checks agreement.
 .PHONY: version
 version:
 ifndef VERSION
-	@python scripts/set_version.py --show
+	@"$(PYTHON)" scripts/set_version.py --show
 	@echo ""
-	@echo "to change it:  make version VERSION=1.0.7"
+	@echo "Set a version: make version VERSION=x.y.z"
 else
-	@python scripts/set_version.py $(VERSION)
+	@"$(PYTHON)" scripts/set_version.py $(VERSION)
 endif

@@ -102,6 +102,12 @@ endif
 # where the compiler accepts it.
 _common_c_args = c_args + cc.get_supported_arguments('-Wno-unused-function') + [
     '-DNPY_TARGET_VERSION=NPY_2_0_API_VERSION']
+if not omp_dep.found()
+    # A BLAS pkg-config file can add -fopenmp even when our OpenMP option is
+    # disabled. Override that compile flag so the serial kernels do not retain
+    # unresolved omp_* symbols without a matching link dependency.
+    _common_c_args += cc.get_supported_arguments('-fno-openmp')
+endif
 
 # _common is built first so other modules can cimport from _common.pxd.
 _common_lib = py.extension_module(
@@ -190,31 +196,24 @@ foreach mod : _finite_safe_modules
     )
 endforeach
 
-# The native HIP ternary lane is OPTIONAL and built only where hipcc exists. Absent it
-# the cpu, openmp and cuda lanes are unchanged, so no machine needs ROCm to run
-# rexgraph. The architecture is asked of the toolchain rather than assumed, and a
-# failure to detect one leaves the lane unbuilt rather than guessing a target.
-hipcc = find_program('hipcc', '/opt/rocm/bin/hipcc', required: false)
-if hipcc.found()
-    hip_arch = get_option('hip_arch')
-    if hip_arch == ''
-        arch_probe = run_command('sh', '-c',
-            'rocminfo 2>/dev/null | grep -m1 -o "gfx[0-9a-f]*"', check: false)
-        hip_arch = arch_probe.returncode() == 0 ? arch_probe.stdout().strip() : ''
-    endif
+# Build the optional native kernels with system ROCm or the ROCm Python SDK.
+hip_option = get_option('hip')
+if not hip_option.disabled()
+    hip_builder = files('../_hip_build.py')
+    hip_probe = run_command(py, hip_builder, '--probe', '--arch', get_option('hip_arch'), check: true)
+    hip_arch = hip_probe.stdout().strip()
     if hip_arch != ''
         custom_target('lib_ternary_hip',
             input: '_ternary_hip.hip',
             output: 'lib_ternary_hip.so',
-            command: [hipcc, '--offload-arch=' + hip_arch, '-O3', '-shared', '-fPIC',
-                      '-o', '@OUTPUT@', '@INPUT@'],
+            command: [py, hip_builder, '--arch', hip_arch, '--compile', '@INPUT@', '@OUTPUT@'],
             install: true,
             install_dir: py.get_install_dir() / 'rexgraph/core',
             build_by_default: true)
-        message('HIP ternary lane: building for ' + hip_arch)
+        message('HIP packed kernels: building for ' + hip_arch)
+    elif hip_option.enabled()
+        error('HIP kernels requested but no compiler and GPU target were found. Run make install-gpu or set HIPCC and HIP_ARCH.')
     else
-        message('HIP ternary lane: hipcc found but no gfx arch detected, skipping')
+        message('HIP packed kernels: no compiler or GPU target found')
     endif
-else
-    message('HIP ternary lane: hipcc absent, skipping (cpu/openmp/cuda unaffected)')
 endif

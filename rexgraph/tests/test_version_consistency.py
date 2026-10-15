@@ -10,7 +10,10 @@ import re
 from pathlib import Path
 
 import pytest
-import tomllib
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -82,7 +85,7 @@ def test_sibling_dependency_floors_cover_the_current_shared_contracts():
         dependencies = project.get("dependencies", []) + [
             item for extra in project.get("optional-dependencies", {}).values() for item in extra]
         for dependency in dependencies:
-            if re.match(r"rexgraph(?:-(?:rcdb|rcql|system|agent))?>=", dependency):
+            if re.match(r"rexgraph(?:-(?:rcdb|rcql|system|agent))?(?:\[[a-zA-Z0-9_,\-]+\])?>=", dependency):
                 assert dependency.split(">=", 1)[1] == version, (name, dependency, version)
 
 

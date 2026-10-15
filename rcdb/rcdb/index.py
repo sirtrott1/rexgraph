@@ -809,12 +809,7 @@ def _existence_operator(index: dict, B):
 
 
 def _row_operator(index: dict, P, reading: str):
-    """`P` with row access, cached beside it.
-
-    A seed set names a handful of TERM vertices and the relations they reach are those
-    vertices' rows, which `P` being CSC does not address. Built once per index: 3.3 s at
-    391M entries, against 840 ms per query for walking the whole operator instead.
-    """
+    """Cache a CSR view of P for access to seed vertices' incident relations."""
     key = "_B1_csr" if reading == "share" else "_B1_existence_csr"
     hit = index.get(key)
     if hit is not None:
@@ -841,15 +836,10 @@ def _seed_flux(index: dict, P, reading: str, seeds, weights):
 
 
 def _vertex_degree(index: dict, B):
-    """Incidences per VERTEX, cached beside the operator that shares its arrays.
+    """Count incidences per vertex from the existing boundary indices.
 
-    `B.indices` IS `rel_idx` already widened by the operator build, so counting off it
-    costs nothing extra; re reading `index["rel_idx"]` and casting to int64 allocated a
-    fresh 3.1 GB copy of 391M entries on EVERY call, which is most of what a warm
-    `record_response` was paying.
-
-    Cached for the same reason `boundary_operator` is: a query does not need it rebuilt.
-    """
+    Cache the result beside the boundary operator so repeated queries reuse
+    the count without widening or copying the original relation indices."""
     hit = index.get("_deg")
     if hit is not None:
         return hit
@@ -876,7 +866,7 @@ def channel_diagonals(index: dict):
     needs a vertex that heads one relation and is an argument of another. Records occupy
     `[0, n)` and terms `[n, n + n_terms)`, disjoint, and a record heads every relation it
     is in while a term is always an argument, so no vertex is ever both, and the
-    mismatch cannot arise. Verified on a built index: max |T - G| off diagonal is 0.0e+00.
+    signed and unsigned off diagonal magnitudes agree, so F vanishes.
 
     What is left is TOPOLOGY against CO PARTICIPATION, which is exactly the axis that
     separates a document answering a query from one that merely shares vocabulary with it.
@@ -891,8 +881,7 @@ def channel_diagonals(index: dict):
 
     # (G 1)_e = sum_f G[e,f] = |B|^T (|B| 1_nE). Both passes run on the DATA ARRAYS: the
     # sparsity is `ptr`/`idx` and the magnitudes are |data|, so nothing needs |B| built.
-    # `abs(B)` copies a 391 million nonzero matrix at Gutenberg scale, which is most of
-    # a 36 s first call.
+    # Read the existing data arrays to avoid copying the sparse matrix structure.
     mag = np.abs(B.data)
     rowsum = np.zeros(B.shape[0], dtype=np.float64)
     np.add.at(rowsum, idx, mag)                        # (|B| 1_nE)_v
@@ -1008,9 +997,8 @@ def record_response(index: dict, terms, *, steps: int = 1, rex=None,
     w = 1.0 / np.maximum(deg[sd], 1.0)
     if n_steps == 1:
         # One step is accession proper and is the default, and at one step the answer is
-        # confined to the seeds' own star. Both matvecs below compute it over the whole
-        # operator, which on the Gutenberg index is 391M entries to reach a result that
-        # is nonzero on a few thousand columns.
+        # confined to the seeds' own star. Restrict the calculation to incident columns
+        # instead of applying both matvecs over the whole operator.
         g = _seed_flux(index, P, reading, sd, w)
     else:
         x = np.zeros(B.shape[0], dtype=np.float64)

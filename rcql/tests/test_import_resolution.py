@@ -3,7 +3,7 @@
 <repo>/<name>/ has no __init__.py, so from the repository root it resolves as a namespace
 package of unknown location. Everything imported from it then fails, and the failure looks
 like broken behaviour rather than a broken import path. conftest.py prevents that; these
-prove it stayed prevented, because the shim is silent by construction.
+verify that the import stayed prevented, because the shim is silent by construction.
 """
 from __future__ import annotations
 

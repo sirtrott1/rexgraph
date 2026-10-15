@@ -98,7 +98,7 @@ def test_complex_quadrance_and_spread_are_Hermitian():
     ([(0,), (0, 1), (1, 0, 2), (2, 0, 1, 3)], [-2, 3, -.5, 0])])
 @pytest.mark.parametrize("c_channel", ["share", "count"])
 def test_factored_channels_read_actual_weights_and_C(cells, weights, c_channel):
-    from rexgraph._experimental import build_factored_operator
+    from rexgraph.channel_operator import build_factored_operator
     r = make(cells, weights, c_channel=c_channel)
     matrices = dict(build_sparse_channels(r))
     names = list(matrices)
@@ -130,7 +130,7 @@ def test_branching_rank_shortcut_requires_zero_sum():
 
 @pytest.mark.parametrize('weights', [[0, 0, 0], [1, 2, 3], [0, 1, 2]])
 def test_normalized_factored_and_diagonal_readers(weights, monkeypatch):
-    from rexgraph._experimental import build_factored_operator
+    from rexgraph.channel_operator import build_factored_operator
     r = make(TRI, weights, g_channel='normalized')
     oracle = dict(build_sparse_channels(r))
     names = list(oracle)
@@ -185,7 +185,7 @@ def test_isolated_normalized_G_is_exactly_zero(arity, weight):
 
 
 def test_repeated_slot_factored_contract_refuses_instead_of_changing_meaning():
-    from rexgraph._experimental import build_factored_operator
+    from rexgraph.channel_operator import build_factored_operator
     r = make([(0, 0), (0, 1)])
     with pytest.raises(ValueError, match='distinct participants'):
         build_factored_operator(r, None, [], [])

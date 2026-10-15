@@ -1,15 +1,8 @@
-"""agent.guard: rule based, real time validity checks on generated content.
+"""Check generated text against configured regular expression rules.
 
-A guard is a lightweight worker in the hive. It watches a stream of generated
-tokens (or a finished reply) against a set of rules, flags violations the instant
-the offending text completes, and can auto fix or trigger a re generation. It is
-the deterministic counterpart to hive.consensus(): consensus catches statistical
-hallucination by agreement across workers; a guard catches specific, known
-violations by rule: a forbidden term, a required invariant, a schema constraint.
-
-The canonical example: if a model forgets the owner's definition and falls back
-to "chain complex" instead of "relational complex", the guard flags it mid stream
-and fixes it, while leaving the legitimate "chain condition" untouched.
+OutputGuard reports matching spans in a complete reply or growing token stream.
+Rules may exempt allowed text and define replacements for automatic correction.
+The supplied relational complex rules normalize selected project terminology.
 """
 from __future__ import annotations
 
@@ -115,6 +108,8 @@ RELATIONAL_COMPLEX_RULES = [
 
 
 def relational_complex_guard() -> OutputGuard:
-    """Guard enforcing the owner's terminology: 'relational complex' (two words, unhyphenated),
-    never 'chain complex'. 'chain condition' (the property B1 B2 = 0) is left untouched."""
+    """Return the supplied terminology guard for the phrase relational complex.
+
+    The rules normalize selected variants of that phrase and preserve chain condition.
+    """
     return OutputGuard(RELATIONAL_COMPLEX_RULES)

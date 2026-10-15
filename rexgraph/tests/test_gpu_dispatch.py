@@ -21,7 +21,7 @@ def _has_gpu():
         return False
 
 
-gpu_only = pytest.mark.skipif(not _has_gpu(), reason="no GPU (torch.cuda) on this host")
+gpu_only = pytest.mark.skipif(not _has_gpu(), reason="Torch GPU device is not visible to this process")
 
 
 @pytest.fixture(scope="module")

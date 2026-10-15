@@ -1,6 +1,6 @@
 """A version and the signed artifact that attests to it.
 
-The audit chain proves an audit LINE was not edited. It says nothing about whether record
+The audit chain checks the hashes of audit entries. It says nothing about whether record
 X at version 3 is the state the commit after version 2 says follows it. That is a
 different object, and this is it: each version carries a mutation package binding the
 endpoint it started from to the one it produced, so a rewritten history stops verifying

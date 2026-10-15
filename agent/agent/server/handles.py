@@ -24,6 +24,8 @@ they do not, and `REXGRAPH_REQUIRE_HANDLES=1` forces the strict rule regardless.
 
 from __future__ import annotations
 
+from agent.data_paths import config_root
+
 import hashlib
 import os
 import re
@@ -45,8 +47,7 @@ _WORKSPACE_RE = WORKSPACE_RE          # compatibility alias
 
 def config_dir() -> Path:
     """Where this deployment keeps its credentials and trail."""
-    return Path(os.environ.get("REXGRAPH_CONFIG_DIR",
-                               os.path.expanduser("~/.config/rexgraph"))).resolve()
+    return config_root().resolve()
 
 
 def allowed_roots() -> list[str]:
@@ -72,7 +73,7 @@ def path_within(path: str, roots) -> bool:
     """Whether a resolved path lies inside one of `roots`, by PATH COMPONENT.
 
     `resolved.startswith(root)` is a string test wearing a path test's clothes: it
-    admits /tmpfoo for /tmp and /home/artifacts for /home/art, because a prefix of the
+    admits /tmpfoo for /tmp and /srv/application for /srv/app, because a prefix of the
     text is not containment in the tree. `Path.is_relative_to` compares components,
     which is the question actually being asked.
 
@@ -124,9 +125,7 @@ class HandleError(ValueError):
 
 
 def _root() -> Path:
-    base = Path(os.environ.get("REXGRAPH_CONFIG_DIR",
-                               Path.home() / ".config" / "rexgraph"))
-    return base / "workspaces"
+    return config_root() / "workspaces"
 
 
 #: a stored suffix, kept so the format layer can still tell what a file IS. Content

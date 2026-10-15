@@ -1,43 +1,12 @@
-"""What a corpus contributes, separated from what the math does.
+"""Encoding, tokenization, delimiters and sectioning rules for document inputs.
 
-(The module is `corpus_profile`, not `profile`: the stdlib has a `profile` module and
-`cProfile` imports it by name, so a top level `profile.py` anywhere on `sys.path`
-shadows it. torch._dynamo imports cProfile, so 17 torch tests failed with
-`module 'profile' has no attribute 'run'`, and only in the full suite, because that is
-when pytest puts the package directory on the path.)
+CorpusProfile carries input rules separately from relation construction.
+Encoding can vary by file, and tokenization recognizes Unicode letters,
+combining marks and configured joiners. Profiles can define wrapper markers,
+section boundaries and relation gating for a document format.
 
-The relational construction is corpus independent and always was: delimiters gate
-existence, arity classes the result into witness / pairwise / branching, the share is
-`1/(k-1)`, the head carries the `-1`, layers partition one field, and the lookup is
-diffusion over that partition. None of that changes for Chinese, for Rust, or for an
-archive whose files disagree about their encoding.
-
-What DOES change is a small set of recorded facts, and they were sitting in the library
-as constants. `_TOKEN = r"[a-z']+"` is the one that mattered: measured, it returns SIX
-tokens for English and ZERO for Greek, Russian, Chinese and Arabic, so four corpora out
-of seven built an empty complex and nothing raised. It also shreds `build_document` into
-`build` and `document`, which dissolves an identifier's identity for the same reason
-clique expansion dissolves a relation's.
-
-A profile holds those facts. Every field is something a corpus RECORDS rather than
-something tuned:
-
-    encoding    per file, not per corpus, because a mixed archive is mixed file by file.
-                `document.read_document` already reports whether the text re-encodes to
-                the bytes, which is the condition for a span to address the heap.
-    token_rule  what a vertex is. "script" for natural language, "identifier" for code.
-    casefold    whether case is noise. It is in prose and is not in source.
-    gate        which tokens gate existence. Function-POS classes for a language, the
-                language's own punctuation for code.
-    veto        what stops a gate firing: abbreviations, or a string literal in code.
-    layers      the coarsening chain, in order.
-    markers     wrapper the corpus inserts around its own content, if any.
-    headings    the section conventions to try, each named so a match can be reported.
-
-Programming languages are the EASY case here, not a second implementation. English needs
-frames because its grammar is only partly recorded (25,100 WordNet senses carry one and
-the rest do not) while a programming language's grammar is complete and executable, so
-every profile field is exact and no convention has to be guessed at.
+The relation builder uses the resulting spans and participants, keeping
+orientation, arity shares and section ownership in the complex itself.
 """
 from __future__ import annotations
 
@@ -76,12 +45,11 @@ _JOINERS = frozenset(["'", "\u2019", "\u02bc", "-", "\u200d", "\u200c"])
 
 
 def _is_word_char(ch):
-    """Letter, MARK, or joiner: read from the Unicode CATEGORY, not from a class.
+    """Return whether a character is a letter, combining mark or word joiner.
 
-    A `\\w`-based rule excludes combining marks, and Indic scripts write their vowels as
-    marks (Mn/Mc). Measured: it broke Hindi at every matra and returned eight fragments
-    for four words. Arabic points, Hebrew niqqud and Thai tone marks fail the same way,
-    so the category is what has to be read rather than a class that happens to fit Latin.
+    Unicode categories L and M retain letters and attached marks across
+    scripts. Configured joiners permit apostrophes and script shaping
+    characters within a token.
     """
     if ch in _JOINERS:
         return True

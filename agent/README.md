@@ -1,534 +1,314 @@
 # RexGraph Agent
 
-The application layer over the compiled `rexgraph` core.
-
-`rexgraph` turns relational data into a relational complex (a graded cell
-complex where edges are primary and vertices are derived from edge boundaries)
-and decomposes it with Hodge theory and typed Laplacians (see the
-[top level README](../README.md) for the math). `rexgraph-agent` is the platform
-built on that core:
-
-- a **FastAPI server and web UI** for upload, analysis, exploration, chat,
-  corpus, models, connectors, and the lifecycle;
-- a **hive**: a multi agent swarm orchestrated as a relational complex, where
-  agents are cells and their messages are recorded into a live complex, so
-  routing is driven by structure and demonstrated history;
-- a **setups driven lifecycle**: named configuration profiles that drive the
-  `serve`, `train`, `build`, `deploy`, `test`, `bench`, `finetune`, `ingest`,
-  and `pipeline` operations, each run logged;
-- **local LLM inference** through llama.cpp, hardware aware and tiered;
-- a **model builder** for custom ML architectures (CNN, HGNN, language model,
-  MLP) trained with the `rexgraph.nn` substrate;
-- **connectors** that turn any database into a relational complex;
-- **integrations** (TrustGraph knowledge cores and rex RAG, HuggingFace,
-  LangChain, LangGraph) as one part of the ecosystem.
-
-Everything is reachable from the CLI, the HTTP API, and the browser UI.
-
+Agent provides the application server, analysis pipeline, worker orchestration,
+data connectors and model tools for RexGraph. It depends on Core and RCDB.
+Workers can be Python callables or services with an OpenAI compatible endpoint.
 
 ## Installation
 
-From the repo root (build the core first, then install a profile):
+From the repository root:
 
-```bash
-pip install ".[io,security]"                            # rexgraph Cython core
-pip install "./rcdb[sql,objectstore,crypto]"     # the store the agent requires
-pip install "./agent[standard]"                         # full local deployment
+```sh
+make install
+make serve
 ```
 
-Run from the repo root. The store is a distribution of its own now and the agent
-requires it, so it goes first: pip resolves an unsatisfied requirement from PyPI, where
-it is not published. `sh install.sh` from the repo root does all of this, including the
-query language and the observatory.
+The equivalent script is `sh install.sh`. Both install the standard profile
+and all five repository packages in `.venv`. Open
+[http://127.0.0.1:8000](http://127.0.0.1:8000) and use the admin token printed
+on first startup. The HTTP API documentation is at `/docs`.
 
-Profiles bundle the granular extras. Pick the smallest one that fits:
+| Command | Agent dependencies |
+| --- | --- |
+| `make install-server` | Web application and API |
+| `make install` | Server, schema tools, connectors, PDF/OCR bindings, training export and YAML |
+| `make install-ml` | Standard profile plus PyTorch and Hugging Face tools |
+| `make install-dev` | Standard profile and test tooling, installed as editable packages |
+| `make install-all` | Declared runtime extras, including cloud and model integrations |
+| `make install-dev-full` | Development dependencies for optional CPU feature tests |
 
-| Profile | For | Weight |
-|---------|-----|--------|
-| `server` | web UI and API only | light |
-| `standard` | full local deployment: UI, schema tools, connectors, OCR, training export | medium |
-| `integrations` | LangChain, LangGraph, TrustGraph | medium |
-| `ml` | LoRA fine tuning and HuggingFace model analysis (torch) | heavy |
-| `warehouse` | Snowflake / BigQuery / Redshift / Databricks drivers | heavy |
-| `all` | everything that runs on CPU | large |
+Add an integration with `sh install.sh --extras trustgraph`, or combine extras
+as `--extras langchain,langgraph`. Install Tesseract for scanned documents,
+`llama-server` for managed local inference, and a compatible PyTorch build for
+GPU training. The [installation guide](../README.md#installation) covers these
+optional runtimes.
 
-Granular extras (`schema`, `connectors`, `ocr`, `ocr-paddle`, `training`,
-`finetune`, `huggingface`, `langchain`, `langgraph`, `trustgraph`, `mistral`,
-`oidc`, `vllm`) combine directly, e.g. `pip install "./agent[server,trustgraph]"`.
-Local inference uses the llama.cpp `llama-server` binary; build it with
-`NATIVE=1 sh install.sh` from the repo root, or point the runtime at an existing
-build.
+## Analysis
 
+```python
+from rexgraph import RexGraph
+from agent.pipeline import AnalysisPipeline
 
-## Quick Start
-
-Serve the platform and open the UI:
-
-```bash
-rcf-server                          # FastAPI server + web UI on http://127.0.0.1:8000
-# or: rexgraph-serve  /  python run.py  (run.py opens a browser; --no-browser to skip)
+rex = RexGraph.from_graph([0, 1, 2], [1, 2, 0])
+result = AnalysisPipeline(rex).run(depth="standard")
+print(result["hodge"]["dim_H"])
 ```
 
-Build a hive and route a query through it:
+The pipeline reports Hodge components and structural channel measurements.
+Hodge decomposition separates gradient flow from vertex potentials, curl flow
+supported by face boundaries, and harmonic flow in the Hodge operator's kernel.
+The relationships and signal being analyzed determine how these measurements
+are interpreted in an application.
+
+`agent.auto.auto_rex` accepts edge tables, JSON, NumPy arrays, DataFrames and
+text. The selected adapter determines which relationships are constructed from the
+input. Core's [declared readers](../rexgraph/io/README.md) let an application
+specify that mapping, source types, exact number conversion and provenance.
+
+## Data and optional features
+
+The standard profile includes common file readers, PDF extraction and Python
+OCR bindings. Scanned documents also require the Tesseract executable. Model
+weights, database credentials and external datasets are supplied for the
+selected application. `make doctor` reports optional packages, external tools
+and configured lexical files; `make verify` checks the installed software.
+
+PDF rendering rejects incomplete page sets and stops its worker if conversion
+exceeds five minutes. Temporary images are removed after processing or failure.
+Model discovery checks configuration files and every indexed weight shard before
+reporting a download as available. Model loaders validate file contents and the
+required tokenizer or processor files when loading the model.
+
+| Extra | Use |
+| --- | --- |
+| `molecules` | RDKit input and molecular interpretation |
+| `analytics` | DuckDB and Polars views of stored signatures |
+| `baselines` | scikit learn, LightGBM and XGBoost comparisons |
+| `ml` | PyTorch and Hugging Face model tools |
+
+Install additional dependencies with `sh install.sh --extras analytics,molecules`
+from the repository root. The [dependency guide](../DEPENDENCIES.md) lists the
+other extras and their requirements.
+
+Lexical answerers use optional WordNet, Roget and Wiktionary resources. Configure
+the data directory before starting Agent:
+
+```sh
+export REXGRAPH_LEXICAL_DIR=/path/to/lexical
+make doctor
+```
+
+| Resource | Relative path under that directory | Individual override |
+| --- | --- | --- |
+| WordNet | `wordnet/english-wordnet-2024.xml.gz` | `REXGRAPH_WORDNET` |
+| Roget | `thesaurus/rogets-pg22.txt` | `REXGRAPH_ROGET` |
+| Wiktionary | `wiktionary/wiktionary-en.rexidx` | `REXGRAPH_WIKTIONARY` |
+
+The default directory is `~/.local/share/rexgraph/lexical`, under `XDG_DATA_HOME`
+when configured. `REXGRAPH_DATA_DIR` selects a RexGraph data root containing a
+`lexical` directory. Existing data in the previous checkout location remains
+usable when no new location is selected. Answerer constructors also accept
+explicit paths. The Wiktionary file is the adapter's prepared index, rather
+than a raw dump; [its source module](agent/adapters/wiktionary.py) documents
+index construction. Installation does not download or convert these resources.
+
+## Configuration and cache
+
+Configure directories before starting Agent or its command line tools. On Linux
+and macOS, configuration defaults to `~/.config/rexgraph` and the cache defaults
+to `~/.cache/rexgraph`. `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` change the parent
+directories. Windows uses `APPDATA` for configuration and `LOCALAPPDATA` for
+the cache.
+
+| Setting | Purpose |
+| --- | --- |
+| `REXGRAPH_CONFIG_DIR` | Configuration, credentials, workspace records and journals |
+| `REXGRAPH_CACHE_DIR` | Reusable analysis results and OCR server process files |
+| `REXGRAPH_MODELS_DIR` | Explicit model downloads; defaults to `models` under the cache directory |
+| `REXGRAPH_MODEL_SCAN_DIRS` | Local model discovery roots, separated by the platform path separator |
+| `REXGRAPH_SESSION_DIR` | Saved analysis sessions |
+| `REXGRAPH_NO_CACHE=1` | Disable reusable analysis and JSON result caching |
+| `REXGRAPH_CACHE_MAX_ENTRIES` | Entries retained after pruning; defaults to 2000, with 0 disabling result caching |
+
+Sessions default to `sessions` under the configuration directory. An existing
+`~/.rexgraph-agent/sessions` directory remains the default when no configuration
+or session directory override is set. An explicit directory setting isolates
+session storage from that legacy location.
+
+`REXGRAPH_MODEL_SCAN_DIRS` replaces the common model search locations. Additional
+directories supplied through `REXGRAPH_MODEL_DIRS` or an explicit discovery call
+are still included.
+
+Session writes publish graph data before updating the history index. A failed
+write raises an error and retains the previous history. A session loaded before
+another writer appends history must be reloaded before it can write. Copied or
+moved session directories retain access to their contained snapshots.
+
+File, OCR and pipeline uploads use `REXGRAPH_MAX_UPLOAD_MB`, which defaults to
+100 MiB. The limit covers the total file content in a pipeline request.
+Invalid or nonpositive values use the default. Uploaded temporary files are
+removed after processing, failed reads or cancellation.
+
+Explicit RexGraph settings take precedence over platform defaults and support
+`~` in paths. Hugging Face downloads use its separate cache settings,
+including `HF_HOME` and `HF_HUB_CACHE`; model discovery reads those locations.
+
+Analysis cache keys include input content, analysis parameters and the cache
+format version. Stored complex data and its sidecar must have matching digests.
+A missing, stale or damaged entry is recomputed. Pruning retains the most recently
+written entries and runs on the first successful write in each process, then
+every 128 writes. The count can temporarily exceed the configured limit between
+sweeps. Pruning preserves model files and service configuration.
+
+Chat reuses deterministic single document answers only when document state and
+retrieval parameters match. Live model generation, lexical answers and queries
+over mutable corpora or stores bypass the response cache.
+
+## The Hive
+
+`Hive.add_worker` registers a callable with a declared capability. Supported
+capabilities are `generate`, `predict`, `score`, `embed`, `analyze` and `transform`.
+Use `invoke` to call a named worker and `dispatch` to route a text request to a
+worker with the `generate` capability.
 
 ```python
 from agent.hive import Hive
+from rexgraph import RexGraph
 
 hive = Hive()
-hive.attach("worker", "http://127.0.0.1:8080", role="worker", model="qwen2.5",
-            specialties=["topology", "homology", "hodge"])   # a running llama-server
-hive.dispatch("What is the first Betti number of a torus?")  # routes + asks the best bee
+
+def analyze(data, **kwargs):
+    graph = RexGraph.from_graph(data["sources"], data["targets"])
+    return {"betti": tuple(graph.betti)}
+
+hive.add_worker("structure", analyze, capability="analyze", specialties=["homology"])
+answer = hive.invoke("structure", {"sources": [0, 1, 2], "targets": [1, 2, 0]})
+print(answer)
 ```
 
-Turn a knowledge graph into a relational complex and score a retrieval (rex RAG,
-no running service needed):
+`attach` connects to an existing OpenAI compatible endpoint. `spawn` starts a
+managed llama.cpp server for a model file. `rexgraph-bee` exposes the same
+endpoint contract to a responder that polls for requests. These use two
+transports: an in process callable or an HTTP endpoint.
+
+```python
+hive.attach("chat", "http://127.0.0.1:8080", role="worker", specialties=["homology"])
+reply = hive.dispatch("Explain the first Betti number of a cycle.")
+```
+
+The hive records interactions in an activity complex and uses declared
+specialties and interaction history for routing. `hive.status()` returns
+membership and health. `get_hive()` supplies the process singleton; create
+separate `Hive` instances when tool registrations must be independent.
+
+## Local inference
+
+Install or build llama.cpp separately and make `llama-server` available on
+`PATH`, or configure an existing binary through the local runtime. The RexGraph
+installer compiles RexGraph's Core extensions.
+
+```sh
+.venv/bin/rexgraph-local --help
+.venv/bin/rexgraph-hive --help
+```
+
+A managed server uses a local GGUF model file. An attached service can use
+llama.cpp, vLLM or another implementation of the endpoint contract. Model files,
+GPU drivers and external inference runtimes have their own installation steps.
+
+## Models and connectors
+
+The [model builder](agent/models/README.md) assembles MLP, CNN, language and
+hypergraph models from `rexgraph.nn` components. Core's
+[cochain models](../rexgraph/flow/README.md) use cells as their parameter space.
+Feature models and cochain models use different optimizers and checkpoint
+formats, as described in their respective guides.
+
+[Connectors](agent/connectors/README.md) read declared source structure and
+construct a relational complex. Optional live drivers support SQL, MongoDB,
+Neo4j and cloud warehouses. Inspect the available schemes before configuring a
+source:
+
+```sh
+.venv/bin/rexgraph-connect list
+```
+
+## Lifecycle and command line tools
+
+A setup is a named configuration for paths, models, backend and thread settings.
+Lifecycle operations use that setup and record their runs.
+
+| Command | Purpose |
+| --- | --- |
+| `rexgraph-config` | Inspect and manage setups |
+| `rexgraph-ops` | Serve, train, ingest, build, deploy, test and benchmark |
+| `rexgraph-run` | Run the document analysis pipeline |
+| `rexgraph-models` | Build and train model archetypes |
+| `rexgraph-connect` | List, validate and ingest data sources |
+| `rexgraph-deploy` | Write a container deployment bundle |
+| `rexgraph-auth` | Manage authentication and workspace members |
+| `rexgraph-courier` | Transfer selected records between stores or peers |
+
+These executables are in `.venv/bin`. Use `--help` for their arguments.
+`make run FILES='document.pdf'` runs the pipeline from the checkout.
+[Benchmarks](agent/benchmarks/README.md) document measurements and their limits.
+
+## Integrations
+
+Optional extras install each integration's dependencies:
+
+| Extra | Interface |
+| --- | --- |
+| `trustgraph` | Knowledge graph imports, structural retrieval measurements and enrichment triples |
+| `huggingface` | Transformer attention analysis |
+| `langchain` | Structural analysis tools for LangChain agents |
+| `langgraph` | State graph construction and analysis |
+| `warehouse` | SQLAlchemy dialects for Snowflake, BigQuery, Redshift and Databricks |
+| `objectstore-cloud` | S3, Google Cloud Storage and Azure filesystem drivers |
+| `oidc` | OIDC authentication support |
+
+Standalone triple analysis needs no TrustGraph service:
 
 ```python
 from agent.integrations.trustgraph_adapter import TrustGraphAdapter, SimpleTriple
 
 adapter = TrustGraphAdapter()
-triples = [SimpleTriple("Drug_A", "treats", "Disease_X"),
-           SimpleTriple("Drug_A", "targets", "Protein_Y"),
-           SimpleTriple("Protein_Y", "involved_in", "Disease_X")]
-rex, meta = adapter.from_triples(triples)
-conf = adapter.subgraph_confidence(rex, [0, 1, 2])   # structural trust of a subgraph
-enrich = adapter.to_enrichment_triples(rex, meta)    # write the analysis back as RDF
+rex, metadata = adapter.from_triples([
+    SimpleTriple("compound", "targets", "protein"),
+    SimpleTriple("protein", "participates_in", "process"),
+])
 ```
-
-
-## The Hive
-
-The hive is a multi agent swarm orchestrated *as* a relational complex. Agents
-("bees") are cells and every message is recorded into a live `agent_complex`, so
-routing blends declared specialty with demonstrated interaction history: a cold
-hive routes by specialty, a warm one routes by who has been carrying the work.
-
-Bees have three roles (`queen | worker | embedder`) and join three ways:
-
-```python
-from agent.hive import Hive
-hive = Hive()
-
-# 1. attach: reference an existing OpenAI-compatible endpoint (llama.cpp, vLLM, ...)
-hive.attach("queen", "http://127.0.0.1:8080", role="queen", specialties=["planning"])
-
-# 2. spawn: launch and own a managed llama.cpp server for a bee
-hive.spawn("coder", "/models/qwen-coder.gguf", role="worker", specialties=["code"])
-
-# 3. add_worker: register ANY callable as a first-class worker (a trained NN, a
-#    rexgraph analyzer, an embedder, a statistical model). Not an LLM, not an endpoint.
-def analyze(data, **kw):
-    from rexgraph.graph import RexGraph
-    import numpy as np
-    g = RexGraph.from_graph(np.array(data["src"]), np.array(data["tgt"]))
-    return {"betti": list(g.betti), "coherence": float(np.mean(g.coherence))}
-hive.add_worker("rex-analyzer", analyze, capability="analyze",
-                specialties=["structure", "betti"], worker_type="analyzer:rexgraph")
-
-# route, dispatch (route + ask a chat bee), invoke (run a worker capability)
-hive.route("explain the homology")          # ranked bees with specialty + history scores
-hive.dispatch("write a reversal function")  # -> {routed, bee, reply}
-hive.invoke("rex-analyzer", {"src": [0,1,2], "tgt": [1,2,0]})
-hive.status(); hive.monitor()               # membership, health, live routing
-```
-
-Worker capabilities are `generate` (chat), `predict`, `score`, `embed`,
-`analyze`, `transform`. `dispatch` is the chat path and always routes to a
-generate capable bee; other capabilities are reached with `invoke`. This is the
-same relational machinery the core uses, pointed outward: agents are cells,
-messages are the signal, and the monitor is the structural self test.
-
-CLI: `rexgraph-hive` starts a hive, `rexgraph-local` manages llama.cpp servers.
-
-
-## Lifecycle and Setups
-
-A **setup** is a named configuration profile: the shared context (backend,
-threads, model choices, paths) that operations run against. A **ComputeSpec**
-inside the setup carries the backend and thread width, and resolves through
-`rexgraph.compute` and `pick_device` so every operation runs on the same
-dynamically selected device (CPU / CUDA / ROCm / MPS) with a live usable GPU
-probe and a CPU fallback.
-
-Operations are the platform's verbs, each run logged:
-
-| Operation | Does |
-|-----------|------|
-| `serve` | run the server + UI |
-| `train` | train a model on a relational complex |
-| `finetune` | LoRA fine tune a language model |
-| `ingest` | pull a source (DB, knowledge core) into a complex + trainable bundle |
-| `pipeline` | run the full analysis pipeline over a corpus |
-| `build` | assemble a deployable agent |
-| `deploy` | generate a container bundle (Dockerfile, compose, entrypoint, config) |
-| `test` | run the platform smoke tests |
-| `bench` | benchmark optimizers / architectures |
-
-```bash
-rexgraph-ops serve                  # run an operation under the active setup
-rexgraph-config                     # manage setups
-rexgraph-deploy                     # generate a deployment bundle
-```
-
-Training, loading, inference, and saving all ride the resolved backend;
-checkpoints are device agnostic (loaded with `map_location` onto the picked
-device), so a model trained on a GPU deploys unchanged to CPU.
-
-
-## Local LLM inference
-
-The runtime detects the llama.cpp server binary, reads the host hardware, and
-serves quantized models locally: no cloud dependency.
-
-```python
-from agent import local_runtime as lr
-
-lr.detect_hardware()        # backend, GPU, RAM, model budget (e.g. rocm, 96 GB usable)
-lr.discover_local_models()  # GGUF + HF-cache models on disk
-lr.recommend()              # tiered model picks that fit the budget (embedder/worker/queen)
-lr.start("/models/qwen2.5-0.5b.gguf")  # spawn a server; probe_endpoints() finds it
-```
-
-`CATALOG` tiers models by role: an embedder for the swarm's alignment signal,
-worker bees for triage and coding, queen models for reasoning. Chat returns
-reliability metrics:
-
-```python
-from agent import chat_model
-chat_model.configure(url="http://127.0.0.1:8080")
-out = chat_model.generate_with_metrics("List three properties of a Hodge Laplacian.")
-out["metrics"]              # perplexity, mean_surprisal, varentropy: the reliability signal
-```
-
-CLI: `rexgraph-local {status, start, stop, pull, recommend}`.
-
-
-## Models: custom ML architectures
-
-The model builder ships four archetypes, each a starting point that is fully
-customizable through its config and trained with the `rexgraph.nn` substrate
-(relational/propagator attention, Green resolvent blocks, and the optimizer
-`make_optimizer("auto")` routes to). All four are feature space models, so that
-route gives them plain Adam; the relational native path, where the parameters
-are a cochain on the complex and the router picks GreensCochain, is
-`rexgraph.flow`:
-
-| Archetype | Data | Notes |
-|-----------|------|-------|
-| `mlp` | tabular / vector | classification or regression |
-| `cnn` | image | `norm=False` drops the batch norm that fixes conditioning: the ill conditioned setting for an optimizer A/B |
-| `hgnn` | hypergraph / higher order relational | fiber bundle advection + diffusion on the complex's signed orientation |
-| `lm` | sequence / language | relational (propagator) or standard attention |
-
-The warehouse HGNN view uses each primary relation as a training node and
-groups relations touching the same declared vertex. Joined knowledge retains
-one entity identity across subject and object positions; tabular edge sources
-retain their distinct source and target domains. Isolated relation rows remain
-in the model's declared node domain. Bundles require aligned finite float32
-features and integer labels within the declared class count. The weight target
-always declares both median classes, including when all weights are equal.
-
-`agent.warehouse.assemble` writes candidates into a fresh `warehouse-*` run
-directory under `save_dir` (or the temporary directory when omitted). Use the
-winner's returned `saved` path to load its checkpoint. Successful assembly
-removes only that run's planned losing outputs, including partial failed writes;
-earlier runs and other files in `save_dir` remain available. Cleanup handles
-checkpoint directories and files, leaves symlink targets alone, and continues
-after an individual cleanup error. If execution or publication raises, outputs
-remain available for inspection and recovery.
-
-```python
-from agent.models import list_archetypes, build, run
-
-list_archetypes()                              # cnn / hgnn / lm / mlp with default configs
-model = build("hgnn", feat_dim=16, n_classes=4, d_hid=32, n_layers=2)
-run("train", archetype="hgnn", steps=200)      # optimizer="auto" -> Adam here; resolved backend
-```
-
-Because the archetypes are configs over composable `rexgraph.nn` blocks, custom
-architectures are the norm, not the exception: vary depth, width, attention
-type, orientation, and the optimizer, or assemble blocks directly. Ingesting a
-knowledge core yields a labeled node classification bundle on a relational
-complex, which any archetype can train on:
-
-```bash
-# POST /api/v1/ml/ingest {triples, labels, train:true, archetype:"hgnn", steps:20}
-# -> relational complex -> trainable bundle -> HGNN trained through make_optimizer("auto")
-```
-
-CLI: `rexgraph-models {list, build, multistep, fusion}`.
-
-
-## Connectors
-
-Connectors turn any database into a relational complex, so the whole platform
-(analysis, RAG, training) applies to data that already lives somewhere.
-
-```bash
-rexgraph-connect list                      # available connectors
-rexgraph-connect read  <source>            # pull records
-rexgraph-connect validate <source>
-rexgraph-connect ingest <source>           # -> relational complex
-```
-
-Sources include SQL databases, warehouses (Snowflake / BigQuery / Redshift /
-Databricks), documents, graph stores, and streams. Combined with the TrustGraph
-adapter, any store becomes a knowledge core and any knowledge core becomes a
-relational complex.
-
-
-## Structural diagnostics
-
-Every edge signal on a relational complex decomposes uniquely and exactly (Hodge
-theorem) into three orthogonal components. The analysis pipeline reports these
-plus the four channel structure:
-
-- **Gradient**: hierarchical structure from B1 alone; face independent; the
-  strength of directed chains.
-- **Curl**: closed feedback loops from the face structure B2; flow circulating
-  within stable triangles.
-- **Harmonic**: conserved flow on unfilled cycles; unresolved structural tension.
-
-Derived metrics: **dim(H)** (independent oscillatory modes, `= beta_1`),
-**frustration** (harmonic content on the topology channel: tension from the
-graph structure, not removable by faces), **coparticipation** (harmonic content
-on the geometry channel: how well the face structure supports the dynamics),
-**health ratio** (frustration / coparticipation; above 1.0 the structure works
-against itself), and **sigma asymmetry** (per edge rigidity vs. responsiveness to
-face changes).
-
-```python
-from agent.auto import auto_rex
-from agent.pipeline import AnalysisPipeline
-
-rex = auto_rex("edges.csv")          # or JSON, text, numpy array, DataFrame, triples
-result = AnalysisPipeline(rex).run(depth="standard")
-result["hodge"]["health_ratio"], result["hodge"]["dim_H"]
-```
-
-
-## Integrations
-
-Integrations are one part of the platform. All soft gate: they import and their
-endpoints stay reachable even when their optional dependency is absent.
-
-### TrustGraph knowledge cores + rex RAG
-
-The interoperability layer between knowledge graphs and relational complexes,
-bidirectional. Standalone mode needs no running service; connected mode uses
-`trustgraph-base>=2.4` against a live instance.
-
-**Knowledge graph to relational complex, and back.** `from_triples` turns any
-triples into a typed relational complex; `to_enrichment_triples` writes the
-structural analysis (coherence, dominant channel, typed channel weights) back as
-RDF triples, so it interoperates with any triple store.
-
-```python
-from agent.integrations.trustgraph_adapter import TrustGraphAdapter, SimpleTriple
-adapter = TrustGraphAdapter()                       # or url="http://localhost:8088/"
-rex, meta = adapter.from_triples([SimpleTriple("Drug_A","treats","Disease_X"), ...])
-triples = adapter.to_enrichment_triples(rex, meta)  # (Drug_A, rex:coherence, 0.71), ...
-```
-
-**rex RAG.** Retrieval gets a *structural* trust metric, not just a similarity
-score. `subgraph_confidence` / `query_confidence` return coherence (kappa) and
-the typed channels (T/G/F/C) of a retrieved subgraph; `decompose_query_signal`
-gives the Hodge decomposition of a query over the knowledge complex (gradient /
-curl / harmonic, plus a beyond pairwise fraction); `assess_query` plans a
-retrieval: entity coverage, harmonic dimension, and an adjusted token budget.
-
-```python
-from agent.integrations.trustgraph_pipeline import TrustGraphPipeline
-pipe = TrustGraphPipeline.standalone()
-pipe.analyze_triples(triples)                       # -> EngineResult (rex + analysis)
-pipe.query_confidence(["Drug_A", "Protein_Y"])      # kappa + typed-channel trust
-pipe.decompose_query_signal(signal, rex=rex)        # Hodge decomposition of the query
-adapter.assess_query(["Metformin", "mTOR"])         # coverage, dim_H, adjusted_tokens
-```
-
-Also: `health_snapshot`, `compare_flows`, `track_evolution` (stabilizing /
-fragmenting / stable), and `as_mcp_tool_definitions()` for agent workflows.
-Server routes under `/api/v1/trustgraph/*` and `/api/v1/ml/ingest`.
-
-### HuggingFace
-
-Analyze transformer attention as a relational complex: build a complex from
-each layer's attention and measure chain condition violation, Dirac equiweight
-deviation, and channel specialization across depth. Requires `[huggingface]`.
-
-```python
-from agent.integrations.huggingface_analyzer import analyze_transformer, quick_attention_analysis
-report = analyze_transformer(model_name="mistralai/Mistral-7B-v0.1", text="The cat sat.")
-result = quick_attention_analysis(attention_matrix)   # pre-extracted weights, no model load
-```
-
-### LangChain
-
-Tools that give any LangChain agent structural analysis during reasoning
-(`RexAnalyzeTool`, `RexConfidenceTool`, and more), backed by a `RexGraph`.
-Requires `[langchain]`.
-
-```python
-from agent.integrations.langchain_tools import RexAnalyzeTool
-tool = RexAnalyzeTool(rex)          # a LangChain BaseTool over the complex
-```
-
-### LangGraph
-
-Model an agent's state machine as a relational complex and read its Hodge
-decomposition: gradient means progress, curl means a converging loop, harmonic
-means stuck oscillation. Requires `[langgraph]`.
-
-```python
-from agent.integrations.langgraph_rex import RexStateGraph
-rsg = RexStateGraph()
-rsg.add_state("reason"); rsg.add_transition("retrieve", "reason", weight=1.0)
-rsg.should_continue(harmonic_threshold=0.4)   # continue / stop / caution
-```
-
 
 ## Server and API
 
-The FastAPI app exposes ~151 endpoints. Session/analysis routes are under
-`/api`, everything else under `/api/v1`.
+`make serve` starts the Agent application. `rcf-server` is its installed console
+entry point. `rexgraph-serve` starts the separate model/OCR inference service.
 
-| Group | Routes |
-|-------|--------|
-| sessions / analysis / explore / chat | run analyses, explore a complex, chat with metrics |
-| upload / corpus / connectors | ingest data and databases |
-| models / ml / pipeline | build, train, and run models and pipelines |
-| ops / deploy / schema / rcdb / ontology | lifecycle, deployment, schema, the relational complex DB |
-| agents / hive | the swarm |
-| trustgraph / ocr / integrations | integrations |
-
-```bash
-rcf-server                          # start it; docs at /docs, UI at /
-curl http://127.0.0.1:8000/api/health
-```
-
-
-## Deployment
-
-Two stacks: local (one operator, one machine) and network (shared, reachable,
-multi user). Same server binary; what changes is auth, bind, and TLS.
-
-**Local stack.** `rcf-server` (alias `rexgraph-ui`) serves the web UI and REST
-API. `rexgraph-serve` is a separate model / OCR inference server, not the app.
-Bind stays on loopback (`RCF_HOST=127.0.0.1`, the default); workers and models
-run on the local hardware. For open solo dev, start with `RCF_ALLOW_INSECURE=1`
-(auth off, a single local admin identity, loopback only). Without that flag a
-fresh server is secure by default (see Authentication).
-
-```bash
-RCF_ALLOW_INSECURE=1 rcf-server     # open local dev, loopback only
-rexgraph-serve                      # separate model/OCR server (not the web app)
-```
-
-**Network stack.** The same server with auth on and per workspace members,
-reachable over the network.
-
-- Put it behind TLS: supply a cert/key (`REXGRAPH_TLS_CERT` / `REXGRAPH_TLS_KEY`)
-  or run `RCF_HTTPS=1` to self sign.
-- Binding a public interface (`RCF_HOST=0.0.0.0`) with auth off is refused by the
-  bind guard; set `RCF_ALLOW_INSECURE=1` only if you mean it.
-- Rate limiting is on by default, tiered per path (`RCF_RATE_LIMIT`,
-  `RCF_RATE_LIMIT_AUTH`, `RCF_RATE_LIMIT_HEAVY`). The in process limiter is
-  per worker; for multiple workers or HA, terminate TLS and rate limit at the
-  proxy.
-- `rexgraph-deploy` generates a container bundle (Dockerfile, compose,
-  entrypoint, config) for this stack.
-
-
-The package includes the web UI and its licensed React runtime for offline use.
-`rexgraph-deploy` bundles use `RCF_HOST`/`RCF_PORT`, keep configuration, authentication,
-RCDB, audit and sessions in the `rexgraph_data` volume, and read overrides from `.env`.
-Copy `.env.example` to `.env` before starting Compose. Configure TLS certificate/key
-files or the trusted proxy address explicitly; incomplete TLS configuration stops
-startup.
+Analysis and session routes use `/api`. Application services use `/api/v1`.
+Native artifact and record transfer uses `/rex/v1` through `agent.client.RexClient`.
+The server includes its UI assets and licensed React runtime for offline use.
 
 ## Authentication
 
-Bearer tokens with per workspace roles. A workspace is shared; each member holds
-one token that carries their role in each workspace they belong to.
+A fresh server enables authentication and prints a bootstrap admin token once.
+Members receive bearer tokens with roles in named workspaces. Workspace admins
+manage members and operations requiring an admin role; users have the permissions granted
+to their workspace role. The activity journal records the acting identity.
 
-- **Roles are per workspace.** `admin` manages that workspace's members and runs
-  its consequential actions; `user` reads and runs build verbs. The root
-  workspace `default` is the instance: its admins enable auth and remove members
-  entirely. A member can be admin of one workspace and a user of another.
-- **Secure by default.** A fresh server (no `auth.json`) starts with auth ON and
-  prints a bootstrap admin token once. `RCF_ALLOW_INSECURE=1` keeps open local
-  dev; `REXGRAPH_ADMIN_TOKEN` sets the bootstrap token instead of a random one.
-- **Stand up a network** in one step, then add members:
-
-```bash
-rexgraph-auth network-init                                   # first admin + recovery key + auth on
-rexgraph-auth member add --name alice --role user            # add to 'default'
-rexgraph-auth member add --name bob --role admin --workspace proj
-rexgraph-auth member list --workspace proj
-rexgraph-auth member revoke --name alice                     # from a workspace, or --all
+```sh
+.venv/bin/rexgraph-auth network-init
+.venv/bin/rexgraph-auth member add --name alice --role user
+.venv/bin/rexgraph-auth member list --workspace default
 ```
 
-- **Enforcement.** A user can PROPOSE a consequential action (a `kill`, say) but
-  only an admin of that workspace executes it (with `confirm`). Every command and
-  member change is recorded in the activity journal stamped with the acting
-  identity, so the journal is the audit trail.
-- **Turning auth off** is host local and passphrase gated, so a stolen token
-  alone cannot open the server. `rexgraph-auth {status, enable, disable,
-  passphrase, recover}`.
+For a shared deployment, configure TLS with `REXGRAPH_TLS_CERT` and
+`REXGRAPH_TLS_KEY`, or use a trusted reverse proxy. `rexgraph-deploy` writes
+Compose configuration, environment settings and volume declarations. Copy its
+`.env.example` to `.env` and configure the deployment before starting it.
 
+## Deployment
 
-## Running in parallel (multi core / multi GPU)
+The default application binds to `127.0.0.1:8000`. Configure `RCF_HOST` and
+`RCF_PORT` for another bind address or port. Rate limits apply per server worker;
+a proxy can enforce limits across several workers.
 
-The compute backend is chosen per run, and work fans out across the hardware you
-have. Nothing here is a fixed thread count; it resolves from the machine.
+`make serve-https` generates a local certificate when needed. Use supplied
+certificate and key files for a deployment with a trusted certificate.
+`make serve-dev` enables source reload for an editable development installation.
 
-- **Backend selection.** `rexgraph.compute` resolves a `ComputeSpec` (backend +
-  thread width) through `pick_device`: CPU / CUDA / ROCm / MPS, with a live GPU
-  probe and a CPU fallback. Pin it in a setup so every operation runs on the same
-  device (`rexgraph-config`), or let each run resolve `auto`.
-- **Multi core.** `parallel_map` fans kernel work across CPU cores with
-  nested parallelism safe budgeting, so the threaded BLAS underneath is not
-  oversubscribed. The heavy CPU wins are in sparsification and the shared moment
-  engine, not blanket `prange`. Set the width with `compute.set_threads(n)` or
-  read the machine with `compute.inventory()`.
-- **Multi GPU.** When more than one GPU is present (`compute.gpu_count()`,
-  `compute.gpu_devices()`), the tower dispatches across them for work above
-  `multi_gpu_min_work`; the matrix free Chebyshev / block CG kernels run on the
-  selected device with 1e-15 parity against the CPU path.
-- **Hive placement.** Deploy workers across CPU cores while models run on
-  GPU / iGPU. Set a model's device in the foundry, or let it resolve; the
-  coordinator model can sit on the iGPU while CPU workers handle triage.
-
-```python
-from agent.foundry import ModelFoundry
-f = ModelFoundry(hive)
-f.forge("detector", "mlp", device="cpu")        # a CPU-core worker
-f.forge("ranker", "hgnn", device="cuda:0")      # a GPU worker
-f.place_llm(hive, "coordinator", model_path, on="igpu")   # LLM on the iGPU
-```
-
-Checkpoints are device agnostic (loaded with `map_location`), so a model trained
-on a GPU deploys unchanged to CPU.
-
-
-## CLI
-
-| Command | Does |
-|---------|------|
-| `rcf-server` / `rexgraph-ui` | run the web app (UI + REST API) |
-| `rexgraph-serve` | run the model / OCR inference server (not the web app) |
-| `rexgraph-hive` | start and manage a hive |
-| `rexgraph-local` | manage llama.cpp servers and models |
-| `rexgraph-models` | list / build / train models |
-| `rexgraph-ops` | run lifecycle operations |
-| `rexgraph-connect` | database connectors |
-| `rexgraph-run` | run the analysis pipeline |
-| `rexgraph-deploy` | generate a deployment bundle |
-| `rexgraph-setup` / `rexgraph-config` | setups and configuration |
-| `rexgraph-auth` | server auth |
-| `rexgraph-ocr` | OCR ingestion |
-| `rexgraph-test` | platform smoke tests |
-
+The compute layer selects CPU, CUDA, ROCm or MPS according to the requested
+backend and available runtime. An explicit GPU request raises an error when
+the device or required runtime is unavailable.
 
 ## External readers
 
@@ -550,114 +330,22 @@ finally:
     unregister_reader("my_records")
 ```
 
-Importing RexGraph does not register dataset readers. External readers own
-source interpretation and mappings; native construction, RCQL execution and
-RCDB persistence use the existing platform owners.
+Register dataset readers before using them. The reader interprets its source
+data, Core constructs the complex, RCQL queries it and RCDB stores it.
 
 ## Stored record transfer
 
-The native graph endpoints remain available. For graphs, temporal objects, exact values,
-declarations, provenance and explicitly installed RCQL results, use RCDB's selected
-record packet through the same `RexClient`:
+RCDB record packets retain a selected payload version, metadata, validity and
+source identity. `agent.client.RexClient` transfers those packets through
+`/rex/v1`, and couriers use the same `rcdb.copy_record` contract for local and
+remote destinations. Destination workspace and integrity policies apply at
+publication. A sender ledger retains acknowledgements and supports explicit
+reconciliation when a checked receipt is available.
 
-```python
-from agent.client import RexClient
-from rcdb import record_packet
-
-peer = RexClient("https://team-server:8000", api_key=token, workspace="research")
-receipt = peer.rex_store_record(record_packet(local_store, "reading", version=1))
-packet = peer.rex_fetch_record(receipt.destination_record_id,
-                               version=receipt.destination_version)
-snapshot = packet.snapshot()
-```
-
-The receiver uses `rcdb.copy_record`, enforces workspace ownership and destination
-policy, and returns a checked binary receipt. Payload and metadata retain exact values.
-Source clocks, encryption and mutation packages are not transplanted. Both directions
-use the existing optional frame HMAC and bounded body streams. Remote couriers select
-this contract when `/rex/v1/hello` advertises `record_transfer_version=1`; older peers
-keep their graph only compatibility contract. Couriers detect metadata only changes.
-The sender ledger records successful transfers, without claiming exactly once delivery
-after a lost response or remote deletion. See [RCDB's contract](../rcdb/README.md#portable-record-versions).
-
-Use `Ledger(path)` for a durable sender ledger. Independent handles serialize
-shipments through one file gate; POSIX processes share that gate. It covers the
-shipment decision, acknowledgement and ledger publication. Separate ledgers can
-proceed independently. Open fresh courier, ledger and store handles after a fork.
-
-Malformed ledgers refuse loading. An uncertain ledger write blocks reuse until
-`ledger.load()` explicitly verifies the published image. This verifies local
-receipts, not the receiver's current state.
-
-If the remote store succeeded but the sender could not acknowledge its ledger write,
-the shipment reports `refused` and retains the known remote address and checked
-receipt. Modern peers support explicit reconciliation:
-
-```python
-from rcdb import CopyReceipt, record_packet
-
-# remote_peer is the registered agent.courier_remote.Peer; failed is its Shipment.
-receipt = CopyReceipt.from_record(failed.receipt)
-selected = record_packet(local_store, failed.record_id, version=receipt.source_version)
-reconciled = remote_peer.reconcile(selected, receipt)
-```
-
-Reconciliation fetches the exact destination version through `RexClient`, checks both
-store identities, literal addresses, versions and state digests, then records the
-receipt. It returns `held` and issues no store request. The admin route
-`POST /api/v1/courier/reconcile` accepts `{source, dest, record_id, receipt}`, using
-already registered source stores and peers with the existing workspace and audit
-boundary. Delivery, broadcast and reconciliation run in FastAPI worker threads so
-requests to a peer hosted on the same server can complete. A lost response with no
-receipt or remote address still needs operator recovery; automatic retry does not
-establish exactly once delivery. Reconciliation
-of an older selected version is an explicit choice and can replace a newer local
-ledger entry for that source record.
-
-Local couriers use `rcdb.copy_record` with the native destination's publication
-cursor and policy digest. Concurrent arrivals of the same selected version append
-one version; the other trips verify that arrival and report `held`. An intervening
-change to the literal destination record reports `conflict` without overwriting it,
-including deletion and revival. Changes to unrelated records can rebase a known
-negative conditional refusal, up to `Courier(copy_attempts=4)` attempts by default
-(allowed range 1–32). Policy changes and destinations that discard the courier's
-selection identity refuse publication. A failed write reports `refused`; an unknown
-publication outcome reports `uncertain` and requires reopening and verification.
-These are separate counts from source `unreadable` records. The reported
-`parent_version` is the live predecessor, or `None` for a revival after deletion.
-Explicit legacy destination writers retain their compatibility behavior and lack
-these native cross handle publication guarantees; migrate them to native stores.
-
-Each trip captures its routes and selected versions before I/O; route changes
-apply to subsequent trips. Selection uses literal ID lists and a nonnegative
-integer limit. `limit=0` selects nothing, and explicit empty filters override
-configured filters. Caller code owns the registered store handles.
-
-## Warehouse features
-
-Warehouse features are approximate training signals; the carried primary complex
-retains its exact relation state. Signals require one explicit, finite real value
-per edge. Missing/masked values need an explicitly supplied signal rather than
-implicit zero imputation. Core computation errors and invalid outputs propagate.
-Features must also fit finite float32 values before entering training.
-
-Hodge features are absolute gradient/curl/harmonic amplitudes, named
-`hodge_grad_abs`, `hodge_curl_abs` and `hodge_harm_abs`. Persisted feature contracts
-use these names and `feature_contract.version=2`. Heat and Dirac feature paths
-require SciPy. The assembled table is shared across eligible tiers.
-
-## Sender ledger retention
-
-`Ledger` keeps the latest acknowledgement per literal peer/record address.
-`save()` preserves acknowledgements. To retire inactive entries, call
-`plan_retention(before=..., peer=..., max_entries=...)` and then
-`apply_retention(plan, archive_path=...)`. The checked archive is published before
-removal and retains complete receipts. Stale plans refuse application.
-
-Retirement forgets the live shipment decision and may permit a later resend.
-Use archived receipts for reconciliation. An uncertain acknowledgement requires
-explicit verified reload; transfers do not provide exactly once delivery.
+See the [record transfer guide](RECORD_TRANSFER.md) for version selection,
+concurrency, uncertain outcomes and ledger retention, and the
+[RCDB guide](../rcdb/README.md#portable-record-versions) for the packet contract.
 
 ## License
 
-Apache License 2.0
+Agent is distributed under the [Apache License 2.0](LICENSE).

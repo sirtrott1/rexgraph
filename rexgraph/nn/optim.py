@@ -1,31 +1,10 @@
-"""rexgraph.nn.optim: Hodge structured optimization, gradient descent on the Helmholtz Hodge
-structure of the gradient field, not the coordinate wise view of SGD/Adam.
+"""Optimizer construction, gradient decomposition and training backend selection.
 
-A gradient on a weight matrix W (out × in) is a flow on the complete bipartite parameter
-graph K_{m,n}: out neurons ∪ in neurons are vertices, each weight is an edge, and ∂L/∂W[i,j]
-is the flow on that edge. The Hodge decomposition splits that flow into orthogonal parts:
-
-  * potential (gradient, im B1ᵀ): the part explained by a per neuron scalar potential; the
-    coordinated descent every neuron agrees on. Closed form on K_{m,n}:
-        potential[i,j] = rowmean_i + colmean_j - grandmean          (two-way ANOVA main effects)
-  * rotational (curl + harmonic, ker B1): the interaction/per-weight residual; the rotational
-    flow that causes oscillation and that momentum/Adam fight coordinate-wise.
-
-Mixing the components (γ_grad·potential + γ_curl·rotational) is a structural preconditioner:
-γ_curl < 1 damps the rotational flow while preserving the coordinated descent. γ_grad =
-γ_curl = 1 reproduces plain SGD exactly. It is O(mn) (the closed form is row/column means)
-and equals the Hodge grad projection the compiled ``rex.hodge`` kernel computes on K_{m,n}
-(see tests).
-
-Two layers:
-  * NumPy Hodge matrix and flow functions, including the compiled general flow path.
-  * Optional Torch optimizers. GreensCochain preconditions cell indexed parameters;
-    HodgeAdam and HodgeSGD are experimental compatibility exports.
-
-The numpy core is pure BLAS; the torch binding runs on whatever backend torch is built for
-(CUDA/ROCm/CPU/MPS). Training dynamics can be logged as a vector corpus via
-``save_hodge_trajectory`` (through the neutral artifact port used for embeddings), so a run's
-grad/rotational balance is a trackable timeline.
+GreensCochain applies a Green operator to gradients carried on a supplied
+complex. Adam, AdamW and SGD use the corresponding PyTorch implementations.
+The matrix and flow decomposition helpers return Hodge components directly.
+save_hodge_trajectory persists supplied per step measurements through the
+same vector artifact interface used for embeddings. PyTorch is optional.
 """
 from __future__ import annotations
 
@@ -34,8 +13,6 @@ from typing import Any
 import numpy as np
 
 # Compatibility exports used by build_optimizer and factory.make_optimizer.
-# The experimental module supplies its own optional Torch guard.
-from rexgraph.nn._experimental import HodgeAdam, HodgeSGD  # noqa: F401
 
 # framework agnostic core
 
@@ -96,7 +73,7 @@ def hodge_flow_precondition(rex, flow, gamma_grad: float = 1.0, gamma_curl: floa
 # training dynamics as a corpus
 
 def save_hodge_trajectory(report: dict[str, list[float]], path: str, *,
-                          optimizer: str = "HodgeSGD", **meta) -> str:
+                          optimizer: str = "unspecified", **meta) -> str:
     """Persist a per step Hodge trajectory (pct_grad / pct_rot / ...) as a labeled vector
     corpus through the neutral artifact port used for embeddings, so a run's
     coordinated vs rotational gradient balance is a trackable timeline. Returns the path."""
@@ -415,25 +392,16 @@ def pick_device(prefer: str | None = None) -> str:
 
 
 def build_optimizer(params, method: str = "adam", lr: float | None = None, **kwargs):
-    """Construct a training optimizer. The honest menu, routed by empirical result:
-      * ``"adam"``    -> plain Adam (DEFAULT; the right choice for standard feature space models,
-                        where the relational structure lives in the forward pass, not the optimizer)
-      * ``"adamw"`` / ``"sgd"`` -> the traditional optimizers, interoperable, opt in.
-      * ``"greens"`` / ``"greenscochain"`` -> GreensCochain, Green's-function preconditioning of the
-                        gradient in a complex's own geometry; the native optimizer for
-                        relational-native models whose parameters are COCHAINS on that complex
-                        (lr default 1e-3). Plain Adam elsewhere ties it, so it is opt-in, not default.
-      * ``"hodge"`` / ``"hodgeadam"`` -> HodgeAdam (lr default 1e-3), back compat only: it ties
-                        plain Adam on standard weight matrices.
-      * ``"hodgesgd"`` -> HodgeSGD, the structural preconditioner (lr default 1e-2), back compat.
-    Requires torch."""
+    """Construct Adam, AdamW, SGD or GreensCochain from parameter groups.
+
+    Adam is the default. GreensCochain accepts groups carrying a complex
+    operator for gradient preconditioning. lr defaults to 1e-3 except for
+    SGD, which uses 1e-2. Other keyword arguments pass to the selected
+    optimizer. Requires PyTorch.
+    """
     if not _HAS_TORCH:
         raise ImportError("build_optimizer needs torch; use the numpy hodge_* core otherwise.")
     m = method.lower()
-    if m in ("hodge", "hodgeadam"):
-        return HodgeAdam(params, lr=1e-3 if lr is None else lr, **kwargs)
-    if m == "hodgesgd":
-        return HodgeSGD(params, lr=1e-2 if lr is None else lr, **kwargs)
     if m in ("greens", "greenscochain"):
         return GreensCochain(params, lr=1e-3 if lr is None else lr, **kwargs)
     if m == "sgd":
@@ -442,25 +410,4 @@ def build_optimizer(params, method: str = "adam", lr: float | None = None, **kwa
         return _torch.optim.Adam(params, lr=1e-3 if lr is None else lr, **kwargs)
     if m == "adamw":
         return _torch.optim.AdamW(params, lr=1e-3 if lr is None else lr, **kwargs)
-    raise ValueError(f"unknown optimizer method {method!r} (adam|adamw|sgd|greens|hodge|hodgesgd)")
-
-
-def hodge_groups(model, n_heads: int = 1):
-    """Architecture aware HodgeAdam param groups. Attention projection weights get
-    ``blocks = n_heads`` (or 3·n_heads for a fused qkv), since each head is an independent
-    relational subspace the flat bipartite would wrongly entangle; everything else stays
-    ``blocks=1`` (flat weighted bipartite: correct for MLP / embeddings / generic). Heuristic by
-    parameter name; pass the result straight to ``HodgeAdam(hodge_groups(model, n_heads), lr=...)``."""
-    if not _HAS_TORCH:
-        raise ImportError("hodge_groups needs torch.")
-    groups = []
-    for name, p in model.named_parameters():
-        low = name.lower()
-        is_attn = any(t in low for t in ("qkv", "attn", "attention", "in_proj", ".q.", ".k.", ".v."))
-        blocks = 1
-        if p.dim() == 2 and is_attn and n_heads > 1:
-            for cand in (3 * n_heads, n_heads):                        # fused qkv, else single proj
-                if p.shape[0] % cand == 0 and p.shape[0] // cand >= 3:
-                    blocks = cand; break
-        groups.append({"params": [p], "blocks": blocks})
-    return groups
+    raise ValueError(f"unknown optimizer method {method!r} (adam|adamw|sgd|greens)")

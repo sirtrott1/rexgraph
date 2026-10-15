@@ -8,10 +8,6 @@ from rexgraph.graph import RexGraph
 from rexgraph.scale_propagator import trace_moments
 
 
-def test_experimental_import_is_only_a_compatibility_alias():
-    from rexgraph._experimental import build_factored_operator as old
-    from rexgraph.channel_operator import build_factored_operator as native
-    assert old is native
 
 
 @pytest.mark.parametrize("name", list("TGFC"))

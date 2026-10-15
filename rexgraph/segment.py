@@ -77,10 +77,8 @@ def encoding_energy(text, *, encoding="utf-8"):
     """Per character energy under `encoding`: `sum (byte * position)^2` over its bytes.
 
     Position is 1 based within the character's own byte run, matching
-    `partition.byte_energy`, so a character's energy is a property of how the ENCODING
-    spends bytes on it. That is the whole point: the same character has a different
-    energy in utf-8 than in a CJK encoding, and comparing across encodings is meaningless
-    without saying which one.
+    `partition.byte_energy`. Values depend on the encoding, which must be specified
+    when comparing results.
     """
     s = _as_text(text)
     out = np.zeros(len(s), dtype=np.float64)

@@ -1,19 +1,15 @@
-"""
-LangChain tools for RexGraph: mathematically grounded agent operations.
+"""LangChain tools for RexGraph structural measurements and analysis.
 
-The core value: your LLM agent hallucinates and doesn't know it.
-These tools give it exact structural confidence from the void complex
-and epsilon tower. Not a probability estimate, a theorem.
+The tools expose gap measurements, boundary residuals, coherence and Hodge
+components from a supplied RexGraph. Their outputs describe that complex
+and its signals. They do not establish the factual accuracy of generated text.
 
 Usage:
 
     from agent.integrations.langchain_tools import (
-        RexConfidenceTool,
-        RexAnalyzeTool,
-        RexHodgeTool,
-        RexExplainTool,
+        RexConfidenceTool, RexAnalyzeTool, RexHodgeTool, RexExplainTool,
     )
-    from langchain.agents import AgentExecutor, create_tool_calling_agent
+    from langchain.agents import create_tool_calling_agent
 
     tools = [RexConfidenceTool(rex), RexAnalyzeTool(rex)]
     agent = create_tool_calling_agent(llm, tools, prompt)
@@ -85,29 +81,23 @@ class ConfidenceInput(BaseModel):
 
 
 class RexConfidenceTool(BaseTool):
-    """Check structural confidence before answering.
+    """Report structural measurements for a topic or relation signal.
 
-    Returns a mathematical confidence assessment based on:
-    - void_affinity: how much of the signal falls in structural gaps
-    - dipole_ratio: face vs void balance (-1 = all void, +1 = all face)
-    - eps1: chain condition violation (should be ~0)
-    - kappa_mean: cross dimensional coherence
+    The result includes void_affinity, dipole_ratio, the chain residual
+    eps1 and mean coherence kappa. The returned verdict uses the same
+    structural checks as the Agent. chain_valid reports boundary closure;
+    positive void_affinity indicates a signal weighted toward unrealized
+    structure. Coherence is reported as a magnitude.
 
-    The verdict is computed from EXACT invariants and returned; do not re derive it
-    from cutoffs. `chain_valid` false means the complex is malformed. `void_affinity`
-    lives in [-1, 1], so a POSITIVE value means the signal leans toward structure that
-    is not realised. Coherence is reported as a magnitude, not judged.
-
-    This is not a probability estimate. It's a count of structural gaps
-    and measured axiom violations. The math either has structure here
-    or it doesn't.
+    These quantities describe the supplied complex and signal. They are
+    not a probability of an answer being correct.
     """
 
     name: str = "rex_confidence"
     description: str = (
-        "Check mathematical confidence for a topic. Returns structural "
-        "reliability metrics. Use BEFORE answering uncertain questions. "
-        "If void_affinity > 0.5, say you don't have reliable structure."
+        "Measure structural gaps, boundary residuals and coherence for a topic "
+        "in the supplied complex. The result describes the represented relations "
+        "and signal; it does not verify the factual accuracy of an answer."
     )
     args_schema: type[BaseModel] = ConfidenceInput
 

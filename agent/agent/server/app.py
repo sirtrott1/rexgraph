@@ -43,11 +43,7 @@ async def _lifespan(_app: FastAPI):
     try:
         yield
     finally:
-        # get_engine caches one engine per connection string for the life of the
-        # process, which is what makes it correct to call per operation. Nothing
-        # released those pools at shutdown, so a server that had served several
-        # workspaces went down still holding a pool for each. Best effort: a failure
-        # here must not turn a clean shutdown into an error.
+        # Release cached SQL connection pools when the application shuts down.
         try:
             from rexgraph.io.sql_bridge import dispose_engines
             dispose_engines()
@@ -247,7 +243,7 @@ async def index():
 # Mount static files (frontend JS, CSS, components).
 # app.jsx is loaded via <script src="/static/app.jsx">; StaticFiles would otherwise
 # guess its type as application/octet-stream, which the browser REFUSES to execute
-# as a script because we send X-Content Type Options: nosniff. Register .jsx as
+# as a script because we send `X-Content-Type-Options: nosniff`. Register .jsx as
 # JavaScript so the UI actually runs (keeping the nosniff hardening intact).
 import mimetypes
 
@@ -256,9 +252,7 @@ mimetypes.add_type("text/javascript", ".mjs")
 
 if _FRONTEND_DIR.exists():
     class _NoCacheStatic(StaticFiles):
-        # frontend assets (app.jsx / theme.css) are edited in place; without this the browser
-        # heuristic caches them and edits don't show. 'no cache' still uses the etag (cheap 304s)
-        # but revalidates every load, so the UI is never stale.
+        # Revalidate assets with their ETag so editable changes reach the browser.
         async def get_response(self, path, scope):
             resp = await super().get_response(path, scope)
             resp.headers["Cache-Control"] = "no-cache"

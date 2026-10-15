@@ -8,13 +8,12 @@ in background and streams via SSE on the /api/analysis/{id}/stream endpoint.
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from agent.auto import auto_rex
 from agent.pipeline import AnalysisPipeline
+from agent.server.upload_files import temporary_upload
 
 router = APIRouter()
 
@@ -37,54 +36,24 @@ async def upload_data(
     """
     from agent.server.app import get_store
 
-    store = get_store()
-
     # Parse options
     try:
         opts = json.loads(options)
-    except (json.JSONDecodeError, TypeError):
-        opts = {}
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise HTTPException(400, "Upload options must be a JSON object") from exc
+    if not isinstance(opts, dict):
+        raise HTTPException(400, "Upload options must be a JSON object")
 
-    # Save uploaded file to temp location, streaming with a hard size cap so a
-    # large (or malicious) upload can't exhaust memory/disk. Override the limit
-    # with REXGRAPH_MAX_UPLOAD_MB (default 100 MB).
-    try:
-        max_mb = float(os.environ.get("REXGRAPH_MAX_UPLOAD_MB", "100"))
-    except ValueError:
-        max_mb = 100.0
-    max_bytes = int(max_mb * 1024 * 1024)
-    suffix = os.path.splitext(file.filename or "data.csv")[1]
-    written = 0
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False, dir=tempfile.gettempdir()) as tmp:
-        tmp_path = tmp.name
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            written += len(chunk)
-            if written > max_bytes:
-                tmp.close()
-                os.unlink(tmp_path)
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"Upload exceeds the {max_mb:g} MB limit "
-                           f"(set REXGRAPH_MAX_UPLOAD_MB to change).")
-            tmp.write(chunk)
-
-    try:
-        # Auto construct the rex
-        rex = auto_rex(tmp_path, **opts)
-    except Exception as e:
-        os.unlink(tmp_path)
-        raise HTTPException(status_code=400, detail=f"Failed to build relational complex: {e}") from e
-    finally:
-        # Clean up temp file (rex data is now in memory)
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+    async with temporary_upload(file) as tmp_path:
+        try:
+            rex = auto_rex(tmp_path, **opts)
+        except Exception as exc:
+            raise HTTPException(400, f"Failed to build relational complex: {exc}") from exc
+    if rex is None:
+        raise HTTPException(400, "Upload produced no relational complex")
 
     # Create session
     name = file.filename or "upload"
-    session = store.create(name=name)
     meta = getattr(rex, "_agent_meta", {})
 
     # Run quick analysis (stages 1-3, < 1 second)
@@ -92,6 +61,7 @@ async def upload_data(
     quick_results = pipeline.run(depth="quick")
 
     # Save snapshot
+    session = get_store().create(name=name)
     session.add_snapshot(
         rex=rex,
         action="upload",

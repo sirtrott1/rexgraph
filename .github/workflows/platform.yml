@@ -26,10 +26,10 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y libopenblas-dev
           python -m pip install build
-      - name: build all five wheels
+      - name: build source archives and wheels for all five packages
         run: |
           for package in . rcql rcdb system agent; do
-            python -m build --wheel --outdir dist "$package"
+            python -m build --outdir dist "$package"
           done
       - name: install into a separate environment
         run: |
@@ -48,8 +48,23 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: |
           "$RUNNER_TEMP/native/bin/python" -I "$GITHUB_WORKSPACE/scripts/smoke_no_scipy.py" --platform --operators --require-absent
-          "$RUNNER_TEMP/native/bin/python" -I "$GITHUB_WORKSPACE/scripts/experiment_rcql_rcdb.py" \
+          "$RUNNER_TEMP/native/bin/python" -I "$GITHUB_WORKSPACE/scripts/check_storage_lifecycle.py" \
             --output "$RUNNER_TEMP/native-lifecycle" --code-revision "$GITHUB_SHA"
+      - name: server profile with declared dependencies
+        run: |
+          python -m venv "$RUNNER_TEMP/server"
+          "$RUNNER_TEMP/server/bin/python" -m pip install dist/*.whl
+          "$RUNNER_TEMP/server/bin/python" -m pip install --find-links dist \
+            'rexgraph[all]' 'rexgraph-rcdb[sql,objectstore,crypto]' 'rexgraph-agent[server,rcql]'
+          "$RUNNER_TEMP/server/bin/python" -m pip check
+      - name: installed server profile checks
+        working-directory: ${{ runner.temp }}
+        env:
+          REXGRAPH_CONFIG_DIR: ${{ runner.temp }}/server-config
+          REXGRAPH_CACHE_DIR: ${{ runner.temp }}/server-cache
+        run: |
+          "$RUNNER_TEMP/server/bin/python" -I "$GITHUB_WORKSPACE/scripts/verify_install.py" --profile server
+          "$RUNNER_TEMP/server/bin/python" -I -m agent.cli.test_all
       - name: prose checks
         run: python scripts/check_writing.py
       - name: installed suites
@@ -65,10 +80,10 @@ jobs:
         run: |
           "$RUNNER_TEMP/platform/bin/python" -I "$GITHUB_WORKSPACE/scripts/smoke_no_scipy.py" --platform --operators
           "$RUNNER_TEMP/platform/bin/python" -m pip check
-      - name: RCQL and RCDB lifecycle experiment
+      - name: RCQL and RCDB lifecycle verification
         working-directory: ${{ runner.temp }}
         run: |
-          "$RUNNER_TEMP/platform/bin/python" -I "$GITHUB_WORKSPACE/scripts/experiment_rcql_rcdb.py" \
+          "$RUNNER_TEMP/platform/bin/python" -I "$GITHUB_WORKSPACE/scripts/check_storage_lifecycle.py" \
             --output "$RUNNER_TEMP/lifecycle" --code-revision "$GITHUB_SHA"
       - uses: actions/upload-artifact@v4
         if: always()
@@ -76,5 +91,6 @@ jobs:
           name: platform-evidence
           path: |
             dist/*.whl
+            dist/*.tar.gz
             ${{ runner.temp }}/lifecycle
             ${{ runner.temp }}/native-lifecycle

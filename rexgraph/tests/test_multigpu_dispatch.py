@@ -3,13 +3,10 @@
 Every GPU propagator/solver in the tower applies ONE shared sparse operator to a BLOCK
 of RHS columns (state nE x ncols). Splitting the COLUMN block across GPUs is exact and
 independent: the operator is replicated (identical on every device), only the columns are
-partitioned, and the tiles concatenate back. This machine has a single GPU, so the
-multi GPU path can't be hardware validated; instead we (a) prove the partition/concat math
-is exact WITHOUT 2 GPUs by driving `_tile_columns_across_gpus` with a forced tile count >=2
-over a CPU reference, (b) where a GPU exists, force >=2 tiles over the SAME physical device
-and pin the multi wrappers to the single device call, and (c) assert the public API still
-matches the CPU oracle on this 1 GPU host. The device count gate MUST degrade the multi GPU
-dispatch to the existing single device path exactly when fewer than 2 GPUs are usable.
+partitioned, and the tiles concatenate back. CPU fixtures check partition and
+concatenation independently of available devices. GPU fixtures compare tiled
+execution with the CPU reference and skip when the required devices are absent.
+Dispatch uses the single device path when fewer than two GPUs are usable.
 """
 import numpy as np
 import pytest
@@ -28,9 +25,9 @@ def _has_gpu():
         return False
 
 
-gpu_only = pytest.mark.skipif(not _has_gpu(), reason="no GPU (torch.cuda) on this host")
+gpu_only = pytest.mark.skipif(not _has_gpu(), reason="Torch GPU device is not visible to this process")
 multi_gpu_only = pytest.mark.skipif(
-    compute.gpu_count() < 2, reason="fewer than 2 GPUs on this host")
+    compute.gpu_count() < 2, reason="fewer than two GPU devices are visible to this process")
 
 
 @pytest.fixture(scope="module")
@@ -56,7 +53,7 @@ def test_gpu_devices_matches_count():
 
 def test_max_gpus_env_caps(monkeypatch):
     """REXGRAPH_MAX_GPUS caps the usable GPU count; =0 forces the single device path everywhere
-    (device count agnostic: proves the cap independent of how many GPUs are physically present)."""
+    (device count agnostic: checks the cap independent of how many GPUs are physically present)."""
     monkeypatch.setenv("REXGRAPH_MAX_GPUS", "0")
     assert compute.gpu_count() == 0
     assert compute.gpu_devices() == []
@@ -73,9 +70,9 @@ def test_multi_gpu_min_work_env_and_default(monkeypatch):
 
 
 def test_multi_gpu_plan_gates(monkeypatch):
-    """_multi_gpu_plan returns device indices ONLY with >1 column, >=2 GPUs, and work over the
+    """_multi_gpu_plan returns device indices only with >1 column, >=2 GPUs, and work over the
     multi gate; otherwise None (the single device fall through). On a <2 GPU host it is always
-    None regardless of work: the property that keeps this machine on the existing path."""
+    None regardless of work, preserving the single device dispatch path."""
     assert spg._multi_gpu_plan(1 << 40, 1) is None           # single column never tiles
     if compute.gpu_count() < 2:
         assert spg._multi_gpu_plan(1 << 40, 16) is None      # <2 GPUs -> single device
@@ -98,7 +95,7 @@ def test_partition_columns_is_exact_contiguous_cover():
 def test_tile_columns_equivalence_cpu_reference(big_L):
     """THE device count agnostic equivalence test: drive _tile_columns_across_gpus with a forced
     tile count >=2 (devices=[0,1,2]) over a CPU reference kernel and assert the tiled+concatenated
-    result equals the untiled single call to ~1e-12. This proves the partition then concatenate
+    result equals the untiled single call to ~1e-12. This checks the partition then concatenate
     logic is exact even though only one physical GPU exists: the kernel is device agnostic, so the
     same helper drives real GPUs in production."""
     rng = np.random.default_rng(0)
@@ -163,11 +160,9 @@ def test_greens_multi_over_same_device_matches_single(spd_A):
     np.testing.assert_allclose(multi, exact, atol=1e-9)
 
 
-#### the public API is unchanged on this (1 GPU) host
+#### public API comparisons
 def test_public_matfunc_matches_cpu_oracle(big_L, monkeypatch):
-    """matfunc_apply(backend='gpu') matches the CPU oracle on this host to ~1e-12 (GPU if present,
-    else the CPU fallback). Gate forced low so the GPU/multi dispatch actually runs; on a 1 GPU
-    host the plan is None, so the single device path is taken: unchanged."""
+    """Compare matfunc_apply's GPU dispatch or CPU fallback with the CPU reference."""
     monkeypatch.setattr(spg, "_GPU_MIN_WORK", 0)
     rng = np.random.default_rng(3)
     F = rng.standard_normal((big_L.shape[0], 8))
@@ -178,7 +173,7 @@ def test_public_matfunc_matches_cpu_oracle(big_L, monkeypatch):
 
 
 def test_public_block_cg_matches_cpu_oracle(spd_A, monkeypatch):
-    """block_cg_solve(backend='gpu') matches the CPU solve on this host (~1e-9)."""
+    """Compare block_cg_solve's GPU dispatch or CPU fallback with the CPU reference."""
     monkeypatch.setattr(spg, "_GPU_MIN_WORK", 0)
     R = spg._csr(spd_A)
     dinv = np.where(np.abs(R.diagonal()) > 1e-30, 1.0 / R.diagonal(), 1.0)

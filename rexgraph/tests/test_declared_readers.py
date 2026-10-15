@@ -26,6 +26,40 @@ def pair_spec():
     return RelationSpec("pair", ("source", "target"), weight="weight", identity="id")
 
 
+def test_json_document_reader_accepts_fragmented_text_reads():
+    class Fragmented(StringIO):
+        def read(self, size=-1):
+            return super().read(min(size, 3) if size >= 0 else 3)
+
+    source = Fragmented('[{"source":"a","target":"b","id":"r","weight":0.1}]')
+    values = list(read_batches(source, reader="json", schema=pair_schema()))
+    assert values[0].columns["weight"].exact().values().tolist() == [Q(1, 10)]
+    assert not source.closed  # streams belong to their callers
+
+
+def test_arrow_ipc_reader_accepts_nonseekable_stream():
+    from io import BytesIO, UnsupportedOperation
+
+    pa = pytest.importorskip("pyarrow")
+    table = pa.table({"source": ["a", "b"], "target": ["b", "c"],
+                      "id": ["r", "s"], "weight": ["0.1", "0.2"]})
+    sink = pa.BufferOutputStream()
+    with pa.ipc.new_stream(sink, table.schema) as writer:
+        writer.write_table(table)
+
+    class ForwardOnly(BytesIO):
+        def seekable(self):
+            return False
+
+        def seek(self, *args):
+            raise UnsupportedOperation("forward-only source")
+
+    source = ForwardOnly(sink.getvalue().to_pybytes())
+    values = list(read_batches(source, reader="arrow", schema=pair_schema(), batch_size=1))
+    assert [row.columns["id"].values for row in values] == [("r",), ("s",)]
+    assert not source.closed
+
+
 def test_csv_batches_preserve_text_decimal_absence_and_source_positions():
     data = StringIO("source,target,id,weight\n00123,b,pair/1,0.1\nb,c,pair/2,NA\nc,d,pair/3,1e-3\n")
     read = list(read_batches(data, reader="csv", schema=pair_schema(), batch_size=2))

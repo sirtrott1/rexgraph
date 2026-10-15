@@ -158,8 +158,7 @@ def surface_identity(rex) -> dict:
 
     **The rate is `chi/E`.** Not an error term and not asymptotic: at every finite stage
     the deviation IS that rational number. How fast it falls is how fast `E` grows under
-    refinement, which is set by the k-gon structure being subdivided. Measured on a
-    triangulated sphere, `6 - d = 6chi/V = 12/V` exactly at every level.
+    refinement, which is set by the cells being subdivided.
 
     That is the sense in which a discrete manifold is not an approximation of a smooth
     one. Each discrete stage satisfies the identity exactly, carrying its own `chi/E`;
@@ -325,8 +324,7 @@ def apd(rex, grade: int = 1, *, view: str = "local"):
         P(c)   sign product of that boundary   the ORIENTATION reading
         D(c)   how many cells contain c   looks UP a grade
 
-    They are the same three separable axes the canon names (share, orientation,
-    existence), read per cell instead of per channel. Nothing here is derived from
+    These measure boundary size, orientation and participation for each cell. Nothing here is derived from
     another: a cell can be wide and lonely, narrow and busy, balanced or frustrated,
     independently.
 
@@ -340,7 +338,7 @@ def apd(rex, grade: int = 1, *, view: str = "local"):
     **P is only representative dependent from grade 2 up.** A `B_1` column is canonically
     `(-1, +share, ..., +share)`, exactly one negative whatever the arity and whatever
     vertex is distinguished, so its sign product is -1 for every relation and reversing
-    an edge does not move it. Measured, not assumed. From grade 2 the coefficients are
+    an edge does not move it. From grade 2 the coefficients are
     solved and their signs vary: a triangle reads `[1,1,1]` and the same triangle with an
     edge reversed reads `[1,-1,-1]`. The product is the HOLONOMY, +1 balanced and -1
     frustrated; `n_negative` counts how many relations run against their stored

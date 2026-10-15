@@ -1,5 +1,6 @@
 """Exact temporal deltas, canonical containers and RCQL commit acceptance."""
 from fractions import Fraction as Q
+from importlib.util import find_spec
 
 import numpy as np
 import pytest
@@ -40,14 +41,17 @@ def test_exact_delta_roundtrip_and_mutation(ids, weights, next_weights):
     np.testing.assert_array_equal(first.w_E, second.w_E)
     first = state(weights, ids)
     package = prepare_mutation(first, second, tx_time=20)
-    decoded = mutation_from_bytes(mutation_to_bytes(package))
-    assert verify_mutation(decoded, previous=first)
+    assert verify_mutation(package, previous=first)
+    if find_spec("safetensors") is not None:
+        decoded = mutation_from_bytes(mutation_to_bytes(package))
+        assert verify_mutation(decoded, previous=first)
 
 
 @pytest.mark.parametrize("suffix", ["rcbd", "safetensors", "h5", "zarr"])
 @pytest.mark.parametrize("lazy", [False, True])
 def test_canonical_temporal_formats_keep_exact_metadata(tmp_path, suffix, lazy):
-    pytest.importorskip({"rcbd": "safetensors", "h5": "h5py", "zarr": "zarr", "safetensors": "safetensors"}[suffix])
+    if suffix != "rcbd":
+        pytest.importorskip({"h5": "h5py", "zarr": "zarr", "safetensors": "safetensors"}[suffix])
     history = TemporalRex([], general=True)
     history._checkpoint_threshold = 100
     history.append_snapshot(state([Q(2, 3), Q(5, 7)], True), at=3)

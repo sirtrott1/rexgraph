@@ -55,9 +55,12 @@ def test_grade_zero_agrees_with_the_cycle_route(name, src, tgt):
 
 
 @pytest.mark.parametrize("n", [4, 5, 6])
-def test_the_tower_is_the_graded_matrix_tree_theorem(n):
-    """Grade 0 is Cayley's n^(n-2) and grade 1 is Kalai's n^C(n-2,2), so the tower is
-    that theorem read one grade at a time rather than an analogy carried upward."""
+def test_complete_triangle_complex_volume_values(n):
+    """Check reduced Gram determinants on complete triangle complexes.
+
+    The expected grade 0 and grade 1 values are n^(n-2) and
+    n^C(n-2,2) for the selected n=4,5,6 fixtures.
+    """
     r = _complete2(n)
     g0, g1 = volume_tower(r)
     assert g0 == n ** (n - 2)
@@ -108,7 +111,7 @@ def test_the_cycle_route_is_a_different_object():
 def test_branching_reads_the_integer_representative():
     """The stored column carries the share 1/(k-1); the Gram must see the integer
     representative instead. A k=3 relation carrying a triangle reads 9, where the shares
-    would give 9/2, and neither the pairwise anchors nor the Kalai tower move."""
+    would give 9/2, and the pairwise and complete triangle regression values remain unchanged."""
     ptr = np.array([0, 2, 4, 6, 9], np.int32)
     idx = np.array([0, 1, 1, 2, 0, 2, 0, 1, 2], np.int32)
     r = RexGraph(boundary_ptr=ptr, boundary_idx=idx)

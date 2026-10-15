@@ -398,7 +398,7 @@ def build_overlap_gramian(
     vertex_weights=None,
 ):
     """Raw overlap Gramian K = |B_1|^T W |B_1| as a scipy CSR: the CANONICAL
-    integer G channel (exact co incidence counts; reference Part IX).
+    integer G channel using exact co incidence counts.
 
     K_ij = (weighted) number of vertices shared by edges i and j; the diagonal is
     the (weighted) edge degree. This is the UNNORMALIZED overlap: for unit weights

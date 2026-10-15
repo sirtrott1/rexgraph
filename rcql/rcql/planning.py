@@ -648,7 +648,7 @@ def _plan_expression(binding: Binding, expr: Expr, parameters: Mapping[str, obje
             raise KeyError(f"no static value declared for parameter ${expr.name}") from exc
         # Programmatic parameters are as capable of carrying a source bound native
         # value as literal builder inputs.  Leaving them raw would let an ExactSheaf,
-        # Chain, or Cochain bypass the same source/basis proof merely because it was
+        # Chain, or Cochain bypass the same source and basis check merely because it was
         # named with ``$`` instead of embedded in an AST.
         return PlannedExpression(expr, _carrier_literal(binding, value) or value)
     if isinstance(expr, Call):

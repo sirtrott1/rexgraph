@@ -1,21 +1,7 @@
-"""
-agent.connectors.sql: the SQL connector (the "out of the box" flagship).
+"""Read SQL schemas and optionally cardinality weights into relational complexes.
 
-One adapter for the whole SQL *shape*: it wraps the engine's existing
-SQLAlchemy reflection, so a single connector covers Postgres, MySQL/MariaDB,
-Oracle, SQL Server, and SQLite via SQLAlchemy's dialects: the driver is the
-only per vendor delta, not the code.
-
-    read(conn_str) -> (rex, meta)
-
-Vertices are tables, edges are foreign keys (child -> parent), faces are genuine
-co participations (junction/associative entities). FK modality
-(nullable / identifying / on delete) rides along as ``meta['modality']``.
-Cardinality weights (which enable data forced strain) are opt in via
-``SQLConnector(with_weights=True)`` because they require reading live row
-counts: approximate, catalog based counts, never row data.
-
-Read only throughout: schema metadata + aggregate counts only.
+The connector uses SQLAlchemy introspection to construct table, column and
+relationship incidence without modifying the source database.
 """
 
 from __future__ import annotations

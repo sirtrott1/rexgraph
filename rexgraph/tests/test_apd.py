@@ -1,12 +1,9 @@
 """Arity, parity and degree: the three directions of a graded complex.
 
 Arity looks DOWN a grade, degree looks UP, parity reads the orientation. The claim these
-pin is that none of the three is derived from another, and that the three are exactly the
-canon's separable axes (share, existence, orientation) read per cell instead of per
-channel.
+pin is that none of the three is derived from another, and each measures boundary size, participation or orientation for a cell.
 
-The parity result is the one worth stating, because it was measured rather than assumed.
-At grade 1 the sign PRODUCT is constant: a canonical `B_1` column is
+At grade 1 the sign product is constant: a canonical `B_1` column is
 `(-1, +share, ..., +share)`, exactly one negative whatever the arity and whatever vertex
 is distinguished, so it reads -1 for every relation and reversing an edge does not move
 it. Parity only carries information from grade 2 up, where the coefficients are solved:
@@ -84,7 +81,7 @@ def test_a_cell_can_be_wide_and_lonely_or_narrow_and_busy():
     assert (4, 0) in pairs, "the wide relation is not the lonely one"
 
 
-#### parity: measured, not assumed
+#### parity regressions
 
 
 def test_at_grade_one_the_sign_product_is_constant():

@@ -184,59 +184,35 @@ def decompress_blob(blob: bytes, *, max_output_bytes: int = 256*1024*1024) -> by
 
 def serialize_complex(obj) -> bytes:
     """Serialize a RexGraph or TemporalRex to compressed safetensors bytes
-    (cross ecosystem, no pickle). A TemporalRex is written as its delta compressed index
-    via `temporal_rex_to_safetensors`; a plain RexGraph goes through the existing
-    `rex_to_safetensors` path, unchanged. A `_Prepared` is already those bytes.
-
-    The result is framed and compressed, so every store gets it from the one place they
-    all serialize through rather than three stores each deciding separately.
+    through the canonical semantic state codec, without temporary files.
+    A TemporalRex retains its delta index; a `_Prepared` already owns bytes.
     """
     if isinstance(obj, _Prepared):
         return obj.blob
     from rexgraph.graph import TemporalRex
-    from rexgraph.io.safetensors_bridge import rex_to_safetensors, temporal_rex_to_safetensors
-    fd, tmp = tempfile.mkstemp(suffix=".safetensors")
-    os.close(fd)
-    try:
-        if isinstance(obj, TemporalRex):
-            temporal_rex_to_safetensors(obj, tmp)
-        else:
-            rex_to_safetensors(obj, tmp)
-        with open(tmp, "rb") as f:
-            return compress_blob(f.read())
-    finally:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
+    from rexgraph.io.safetensors_bridge import state_to_safetensors_bytes
+    if isinstance(obj, TemporalRex):
+        from rexgraph.temporal_state import to_temporal_state
+        state = to_temporal_state(obj)
+    else:
+        from rexgraph.state import to_state
+        state = to_state(obj)
+    return compress_blob(state_to_safetensors_bytes(state))
 
 
 def deserialize_complex(blob: bytes, *, verify: bool = True):
     """Reconstruct a RexGraph or TemporalRex from safetensors bytes.
 
-    `verify=False` skips the load time integrity check, which is a REAL check and not a
-    formality: since the Merkle digests are derived rather than stored, `from_state`
-    rebuilds the layer tree from the complex and compares it to the recorded root, so it
-    catches a re signed boundary column. It also costs one `_leaf_digests` pass: 37.6 s
-    on the largest record in the Gutenberg corpus.
+    By default, `from_state` rebuilds the Merkle layer tree and compares it with
+    the stored root to detect changed boundary coefficients. `verify=False`
+    skips this pass. Callers using it for preliminary retrieval must verify a
+    selected record before accepting its contents.
 
-    So it is worth paying where the answer is COMMITTED and not on every speculative
-    read. A retrieval opens many candidates and keeps a few; verifying the discarded ones
-    buys nothing. This is the same split `score_document(reading=False)` makes, for the
-    same reason. Callers that skip it here must verify what survives.
-
-    Routes on the file's own `object_type` metadata (written by `serialize_complex`)
-    via `load_safetensors`, the object type dispatch shared with `save_safetensors`
-    (safetensors_bridge.py), so the reader never has to be told in advance which
-    kind of complex the blob holds."""
-    from rexgraph.io.safetensors_bridge import load_safetensors
-    fd, tmp = tempfile.mkstemp(suffix=".safetensors")
-    os.close(fd)
-    try:
-        with open(tmp, "wb") as f:
-            f.write(decompress_blob(blob))
-        return load_safetensors(tmp, verify=verify)["object"]
-    finally:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
+    The shared safetensors byte reader routes on stored object type metadata
+    and accepts graph and temporal payloads previously saved to files.
+    """
+    from rexgraph.io.safetensors_bridge import load_safetensors_bytes
+    return load_safetensors_bytes(decompress_blob(blob), verify=verify)
 
 
 class _SkipAnalytics(Exception):
@@ -256,15 +232,10 @@ def structural_signature(rex, meta: dict | None = None,
     `voids` adds `n_voids`, and is OFF by default because it is the one reading here that
     is not cheap at every size: see the note at its call site.
 
-    `analytics` covers `kappa_mean` and the information metrics: the readings that cost
-    more than building the document does. `betti` is NOT among them: it is
-    structure, it is queried, and its cost was a fixable one in the rank path. They are
-    ANALYTICS
-    columns (`analytics.SCHEMA`, queried as `avg(kappa_mean) GROUP BY source`), not
-    retrieval inputs: the query prefilter reads `labels_sample`. They also cost 2.17 s
-    a document against 0.39 s to build the document itself, so at corpus scale they are
-    85% of the ingest and 37 of its 44 hours. On by default, because a caller reading one
-    document wants them; a corpus ingest turns them off and backfills what it needs.
+    `analytics` includes kappa_mean and information metrics for columnar queries.
+    It defaults to True. Corpus ingestion can disable these calculations and
+    backfill them later. Betti values remain part of the structural signature
+    regardless of this flag; the retrieval prefilter uses labels_sample.
 
     A TemporalRex gets its own branch: the temporal fields (T, checkpoint_times)
     plus the structural signature of its latest snapshot (`reconstruct_at(T - 1)`),
@@ -299,13 +270,7 @@ def structural_signature(rex, meta: dict | None = None,
         "tags": list(tags or []),
         "source": meta.get("input_type") or meta.get("source") or "",
     }
-    # BETTI is structure, not analytics: `min_betti1`/`max_betti1` query on it and a
-    # record without it cannot answer whether the evidence closes. It was briefly moved
-    # behind the flag on cost (4.31s of a 4.49s signature) but that cost was the rank
-    # path, not Betti. A span gated document's pairs do not span its wider columns, so
-    # the union find identity correctly refuses and exact elimination runs; the
-    # elimination was carrying Fractions with denominator 1 and reducing its widest
-    # columns first. Both are fixed at the source in `_exact_rank_reduction`.
+    # Structural query filters require Betti values even when analytics is disabled.
     try:
         sig["betti"] = [int(b) for b in rex.betti]
     except Exception:
@@ -941,10 +906,9 @@ class RCStore:
         """Whether this record's history is the one its commits attest to.
 
         Walks forward, so each package is checked against the version that actually
-        precedes it in the store rather than against whatever it claims. That is the
-        whole point of the chain: a package proves a transition only when the endpoint it
-        started from is the one on disk, which is why `previous` is passed here and why
-        verify_mutation requires it rather than defaulting.
+        precedes it in the store. A transition is validated against its recorded
+        starting state, supplied through the required `previous` argument to
+        verify_mutation.
         """
         from rexgraph.object_identity import object_digest
         from rexgraph.io.mutation import MutationPolicy, verify_mutation
@@ -1401,9 +1365,7 @@ class RCStore:
         """Structural query: select complexes by their topology.
 
         `as_of`/`valid_at` apply the predicate to the version that was current then,
-        not to the latest one. That distinction is the whole point: matching a
-        predicate against today's record and then reading yesterday's blob silently
-        drops anything whose structure or vocabulary has since changed."""
+        including when its structure or vocabulary differs from the latest record."""
         raise NotImplementedError
 
     def delete(self, id: str) -> bool:
@@ -1937,9 +1899,7 @@ class FileStore(RCStore):
                 if type(id) is not str or not id or type(v) not in (dict, list):
                     raise ValueError("invalid legacy index record address or versions")
                 eager[id] = [record_metadata(x, id) for x in ([v] if type(v) is dict else v)]
-        # then the append only log. Rewriting the whole index on every put made the
-        # cost of a put grow with the store: 4 ms at a hundred records, 35 ms at
-        # sixteen hundred, which is quadratic ingest. One frame per change instead.
+        # Replay the append log, which stores one frame per change.
         entries = []
         if snap is None and os.path.exists(self._legacy_log):
             from .legacy import line_changes

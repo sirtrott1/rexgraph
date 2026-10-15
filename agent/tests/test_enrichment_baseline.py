@@ -1,20 +1,9 @@
-"""The enrichment statistic, against an independent implementation.
+"""Compare enrichment statistics with SciPy on generated annotation fixtures.
 
-What this checks and what it does not. `goatools` is not installed here and adding it
-as a dependency to run a test would be the wrong trade, so this is NOT an end to end
-comparison of two tools. It is a comparison of the STATISTIC, which is where a
-numerical disagreement would live: goatools reports the hypergeometric survival
-function, and so does `scipy.stats.hypergeom`, so agreeing with scipy to machine
-precision is agreeing with goatools' number.
-
-What remains unbenchmarked, stated so the gap is not mistaken for coverage: goatools'
-OBO parsing, its handling of the GO relation set beyond is_a/part_of, and its
-propagation edge cases. Those are tool differences, not statistical ones, and settling
-them needs the tool.
-
-The multiple testing correction is checked the same way: against an independent
-Benjamini Hochberg written from the definition rather than from the implementation
-under test.
+Hypergeometric tail values are checked against scipy.stats.hypergeom.
+Multiple testing correction is checked with a separately implemented
+Benjamini Hochberg calculation. These tests exercise the statistics and
+annotation counts without comparing external ontology processing tools.
 """
 from __future__ import annotations
 

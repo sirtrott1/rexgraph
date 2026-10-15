@@ -108,7 +108,7 @@ from ._container_crypto import (
     read_protected_tensor,
     validate_storage_inventory,
 )
-from rexgraph.state import fname_encode as _fname_encode
+from rexgraph.state import fname_decode as _fname_decode, fname_encode as _fname_encode
 
 __all__ = [
     "RCBDBundle",
@@ -649,7 +649,7 @@ class RCBDBundle:
                     os.replace(root, backup)
                 try:
                     os.replace(staging, root)
-                except Exception:
+                except BaseException:
                     if had_existing and backup.exists() and not root.exists():
                         os.replace(backup, root)
                     raise
@@ -869,12 +869,12 @@ class RCBDBundle:
             return self._read_encrypted_tensor(member["logical_name"])
 
         # Check root level
-        npy = self._root / f"{key}.npy"
+        npy = self._root / f"{_fname_encode(key)}.npy"
         if npy.exists():
             return np.load(npy, mmap_mode="r" if mmap else None)
 
         # Check cache/
-        npy = self._root / "cache" / f"{key}.npy"
+        npy = self._root / "cache" / f"{_fname_encode(key)}.npy"
         if npy.exists():
             return np.load(npy, mmap_mode="r" if mmap else None)
 
@@ -890,8 +890,8 @@ class RCBDBundle:
                 return False
             return True
         return (
-            (self._root / f"{key}.npy").exists()
-            or (self._root / "cache" / f"{key}.npy").exists()
+            (self._root / f"{_fname_encode(key)}.npy").exists()
+            or (self._root / "cache" / f"{_fname_encode(key)}.npy").exists()
         )
 
     def list_arrays(self) -> list[str]:
@@ -905,11 +905,11 @@ class RCBDBundle:
             )
         names = []
         for f in self._root.glob("*.npy"):
-            names.append(f.stem)
+            names.append(_fname_decode(f.stem))
         cache_dir = self._root / "cache"
         if cache_dir.exists():
             for f in cache_dir.glob("*.npy"):
-                names.append(f.stem)
+                names.append(_fname_decode(f.stem))
         return sorted(names)
 
     def read_cache(self) -> dict:

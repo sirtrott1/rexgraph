@@ -107,6 +107,7 @@ def test_relation_ids_round_trip_through_bundle_hdf5_zarr_and_safetensors(tmp_pa
     save_rcbd(str(bundle), history)
     assert load_rcbd(str(bundle)).at(1).relation_ids.tolist() == [32, 33]
 
+    pytest.importorskip("safetensors", reason="this container requires rexgraph[io]")
     from rexgraph.io.safetensors_bridge import (
         safetensors_to_temporal_rex,
         temporal_rex_to_safetensors,

@@ -186,6 +186,7 @@ def test_a_signal_is_decomposed_when_one_is_given():
 
 
 @pytest.mark.parametrize("suffix", [".rcbd", ".h5", ".zarr"])
+@pytest.mark.filterwarnings("error:Object at .* is not recognized as a component of a Zarr hierarchy")
 def test_a_result_round_trips_through_a_file(tmp_path, suffix):
     pytest.importorskip({".rcbd": "numpy", ".h5": "h5py", ".zarr": "zarr"}[suffix])
     res = DecisionEngine().run(TEXT)
@@ -195,6 +196,28 @@ def test_a_result_round_trips_through_a_file(tmp_path, suffix):
     assert back.rex.nV == res.rex.nV and back.rex.nE == res.rex.nE
     assert tuple(back.rex.betti) == tuple(res.rex.betti), \
         "the reloaded complex has different topology"
+    assert back.plan.input_type == res.plan.input_type
+    assert set(back.analysis) == set(res.analysis)
+
+
+def test_a_legacy_zarr_result_reads_metadata_inside_the_store(tmp_path):
+    import json
+    import warnings
+    pytest.importorskip("zarr")
+    from rexgraph import RexGraph
+    from rexgraph.io import save
+
+    path = tmp_path / "legacy.zarr"
+    save(path, RexGraph.from_graph([0], [1]))
+    for name, value in (("plan", {"input_type": "text", "depth": "standard"}),
+                        ("analysis", {"edges": 1}), ("meta", {"source": "synthetic"})):
+        (path / (name + ".json")).write_text(json.dumps(value))
+    # Zarr 3 reports the ordinary JSON files in this older layout.
+    with warnings.catch_warnings(record=True):
+        back = EngineResult.load(path)
+    assert back.plan.input_type == "text" and back.plan.depth == "standard"
+    assert back.analysis == {"edges": 1}
+    assert back.meta == {"source": "synthetic"}
 
 
 def test_a_reloaded_result_keeps_its_plan(tmp_path):

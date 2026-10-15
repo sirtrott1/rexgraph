@@ -1,7 +1,7 @@
 """Source aware structural predicates and native operator space descriptors.
 
 Checks inspect incidence/declared carriers, never evaluate expression adapters,
-form channel/Laplacian Gram matrices, or solve. Deferred predicates are not proofs.
+form channel/Laplacian Gram matrices, or solve. Deferred predicates have not been checked against runtime values.
 """
 from __future__ import annotations
 

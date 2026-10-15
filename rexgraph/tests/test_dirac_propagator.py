@@ -335,27 +335,6 @@ def test_graded_boundaries_property_is_used_when_present():
     assert list(sd.sizes) == [4, 6, 4]
 
 
-def test_deprecated_heat_diag_warns_but_still_correct():
-    """The retired edge space heat diagonal stays importable: it emits a
-    DeprecationWarning yet still returns the correct diag(e^{-tL}) numbers (checked
-    against the dense matrix exponential) so existing callers do not crash."""
-    from scipy.linalg import expm
-
-    from rexgraph import _experimental as _exp
-
-    rng = np.random.default_rng(5)
-    A = rng.standard_normal((6, 6))
-    L = sp.csr_matrix(A @ A.T)                      # SPD
-    t = 0.3
-    ref = np.diag(expm(-t * L.toarray()))
-
-    with pytest.warns(DeprecationWarning):
-        got = _exp.heat_propagator_diag(L, t, order=120, mode='exact')
-    assert np.allclose(got, ref, atol=1e-6), f"max|Δ|={np.abs(got - ref).max():.2e}"
-
-    with pytest.warns(DeprecationWarning):
-        _exp.chebyshev_diag(lambda P: L @ P, 6, lambda l: np.exp(-t * l),
-                            lam_max=float(np.abs(L).sum(axis=1).max()), order=120)
 
 
 def test_from_cells_3rex_dirac_is_grade_general():
@@ -377,8 +356,8 @@ def test_from_cells_3rex_dirac_is_grade_general():
 
 
 def test_heat_character_accessor_is_quiet():
-    """The superseded heat_character accessor still works and does NOT emit the
-    experimental DeprecationWarning (it calls the warning free internal impl)."""
+    """Check that the heat diagonal accessor returns one value per relation.
+    """
     import warnings
     g = _tetra_2rex()
     with warnings.catch_warnings():

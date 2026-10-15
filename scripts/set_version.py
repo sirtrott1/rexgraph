@@ -39,7 +39,7 @@ for package in ("rcdb", "rcql", "system"):
 
 VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:(?:a|b|rc)\d+|\.dev\d+|\.post\d+)?")
 SIBLING_FLOOR = re.compile(
-    r'("rexgraph(?:-(?:rcdb|rcql|system|agent))?>=)[^"\s]+(")')
+    r'("rexgraph(?:-(?:rcdb|rcql|system|agent))?(?:\[[a-zA-Z0-9_,\-]+\])?>=)[^"\s]+(")')
 
 
 def current() -> dict[str, str]:

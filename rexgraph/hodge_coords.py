@@ -447,28 +447,21 @@ def harmonic_closure(rex, *, frame=None, exact=False):
 
 
 def harmonic_gram_det(rex, *, frame=None):
-    """Exact determinant of the frame Gram, by fraction free elimination.
+    """Return the exact determinant of a harmonic frame's Gram matrix.
 
-    With no faces and every relation 2 ary, the frame is the full cycle space and
-    this is the number of spanning FORESTS: the product over connected components
-    of each component's spanning tree count. That reduces to the spanning trees of
-    the graph when it is connected, which is the case the claim was first read on.
-    Verified against the Matrix Tree cofactor of L0 on six random graphs, against
-    Cayley's n^(n-2) on K4 through K19, and against the component product on four
-    disconnected complexes (two and three triangles, triangle plus K4, triangle
-    plus C4). Multigraphs are fine: a doubled relation reads 8 on the triangle.
+    The supplied frame, or harmonic_frame(rex) by default, is converted
+    to exact coefficients. The function forms its Gram and evaluates the
+    determinant using fraction free elimination. An empty frame returns 1.
 
-    Outside that scope, the value remains an exact Gram determinant; it is
-    not a spanning tree count.
+    For face free pairwise graphs, the frame spans the full cycle space
+    and the result equals the product of spanning tree counts across
+    connected components. Regression values include n^(n-2) on complete
+    graphs and 9 for two disconnected triangles. Faces and branching
+    relations can change this interpretation; the returned quantity
+    remains the determinant of the selected frame Gram.
 
-    It is where the harmonic readings get their denominators. A reading is
-    `q^T G^-1 q` shaped, which is `q^T adj(G) q / det(G)`, so a coordinate's
-    denominator divides det(G) and a closure entry's divides det(G) * ||p||^2,
-    the extra factor being the size of the product's support. On K5 that is
-    125 and 3, and the diagonal closure is 7/15.
-
-    Float LU on the same matrix drifts (160 absolute at K16, 9.4e6 at K19),
-    which is why this path is fraction free.
+    The exact determinant is used in rational harmonic coordinate
+    calculations, where a floating point determinant can lose precision.
     """
 
     from rexgraph.rational_trig import bareiss_determinant

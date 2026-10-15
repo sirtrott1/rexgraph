@@ -33,10 +33,10 @@ def test_exact_specialization(binding, fixed):
     candidate = t.compile(binding, n, args)
     assert candidate.apply(binding, args) == n.apply(binding, {**args, **fixed})
     assert n.to_bytes() == original
-    proof = t.verify(n)
-    assert all(not any(row) for row in proof['tower_closure_residuals'])
-    assert 'cross tower chain map' in proof['excluded_claims']
-    assert proof['fixed_inputs']
+    verification = t.verify(n)
+    assert all(not any(row) for row in verification['tower_closure_residuals'])
+    assert 'cross tower chain map' in verification['excluded_claims']
+    assert verification['fixed_inputs']
 
 
 def test_repeated_parameter_changes_topology(binding):
@@ -107,10 +107,10 @@ def test_capture_and_stage_collisions(binding):
     t = ProgramTransformation.compose(left, right, 'input')
     candidate = t.compile(binding, left, [5])
     assert candidate.apply(binding, [5]) == 28
-    proof = t.verify()
-    assert len(proof['capture_mapping']['left']) == len(left.bound_values)
-    assert len(proof['capture_mapping']['right']) == len(right.bound_values)
-    assert len(proof['stage_mapping']) == len(left.stages)+len(right.stages)
+    verification = t.verify()
+    assert len(verification['capture_mapping']['left']) == len(left.bound_values)
+    assert len(verification['capture_mapping']['right']) == len(right.bound_values)
+    assert len(verification['stage_mapping']) == len(left.stages)+len(right.stages)
 
 
 @pytest.mark.parametrize('ports', [[], ['a', 'a'], ['missing'], [1], object()])
@@ -150,7 +150,7 @@ def test_result_type_can_change(binding):
     assert t.compile(binding, left, [Q(1, 7)]).apply(binding, [Q(1, 7)]) == Q(2, 7)
 
 
-@pytest.mark.parametrize('change', ['stage', 'body', 'capture', 'derivation', 'ports', 'following', 'proof', 'tower'])
+@pytest.mark.parametrize('change', ['stage', 'body', 'capture', 'derivation', 'ports', 'following', 'verification', 'tower'])
 def test_tampering_refused(change):
     n = add('source', ('x', 'amount')).bind('amount', 2)
     g = add('following', ('a', 'amount')).bind('amount', 3)
@@ -170,7 +170,7 @@ def test_tampering_refused(change):
         data['arguments'] = (g.to_bytes(), ('amount',))
     elif change == 'following':
         data['arguments'] = (g.rebind('amount', 999).to_bytes(), ('a',))
-    elif change == 'proof':
+    elif change == 'verification':
         data['certificate']['scope'] = 'unconditional equivalence'
     else:
         data['after']['tower']['digest'] = '0'*64

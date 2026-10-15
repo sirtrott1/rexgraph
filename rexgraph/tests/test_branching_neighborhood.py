@@ -10,7 +10,7 @@ import pytest
 from rexgraph.graph import RexGraph
 
 #: a 4 ary relation over {0,1,2,3} plus 2 ary legs 0-1, 1-2, 2-4.
-#: Vertex 3 sits ONLY in the 4 ary relation, so it is the one the pairwise path lost.
+#: Vertex 3 sits only in the 4 ary relation, so it is the one the pairwise path lost.
 _OFFSETS = np.array([0, 4, 6, 8, 10], dtype=np.int32)
 _VERTICES = np.array([0, 1, 2, 3, 0, 1, 1, 2, 2, 4], dtype=np.int32)
 

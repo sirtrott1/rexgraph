@@ -1,16 +1,5 @@
-# Build the Cython kernels on a machine that is not the author's, and run the suites.
-#
-# The point is not to replace local testing. GitHub's runners have no CUDA, ROCm or
-# Metal, so the compute layer's GPU paths cannot run here at all and stay measured on
-# real hardware. What this covers is the axis a developer machine structurally cannot:
-# a build from an EMPTY tree, with dependencies resolved from declarations rather than
-# from whatever happens to be installed already.
-#
-# That axis is not hypothetical. Building this repo clean surfaced four things that a
-# warm editable install hides: fsspec used but never declared, safetensors the same, a
-# test importing torch with no skip guard (which took the whole suite's collection down
-# with it), and a zarr deprecation that only fires on a version newer than the one
-# pinned locally.
+# Build the compiled extensions and run CPU suites from declared dependencies.
+# Device checks require a runner exposing the corresponding hardware.
 
 name: build and test
 
@@ -35,7 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python: ["3.11", "3.13"]
+        python: ["3.10", "3.11", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
@@ -97,7 +86,7 @@ jobs:
           if [ "$RUNNER_OS" != "macOS" ]; then
             pip install --index-url https://download.pytorch.org/whl/cpu torch
           fi
-          pip install safetensors fsspec pytest trove-classifiers sympy
+          pip install safetensors fsspec pytest trove-classifiers sympy 'tomli>=2.0; python_version < "3.11"'
 
       # from the repo root on purpose. The editable install serves the package through
       # meson-python's import finder, and the root conftest.py points rexgraph.__path__

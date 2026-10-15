@@ -173,7 +173,7 @@ def test_rate_limiter_tiers_and_exemptions(monkeypatch):
 
 def test_appjsx_served_as_executable_javascript():
     """Regression: app.jsx is loaded via <script src>. Under our
-    X-Content Type Options: nosniff header the browser refuses to execute a script
+    `X-Content-Type-Options: nosniff` header the browser refuses to execute a script
     unless its MIME type is JavaScript: so StaticFiles must NOT serve it as
     application/octet-stream, or the whole UI silently fails to render."""
     from agent.server.app import app
@@ -214,14 +214,14 @@ def test_dbguard_resolves_hostname_to_private(monkeypatch):
 #### path containment: a prefix of the text is not containment in the tree
 
 def test_a_prefix_is_not_containment():
-    """`resolved.startswith(root)` admitted /tmpfoo for /tmp and /home/artifacts for
-    /home/art. Both are siblings of the allowed root, not children of it."""
+    """`resolved.startswith(root)` admitted /tmpfoo for /tmp and /srv/application for
+    /srv/app. Both are siblings of the allowed root, not children of it."""
     from agent.server.handles import path_within
-    roots = ["/tmp", "/home/art"]
+    roots = ["/tmp", "/srv/app"]
     assert path_within("/tmp/ok.txt", roots)
-    assert path_within("/home/art/doc.txt", roots)
+    assert path_within("/srv/app/doc.txt", roots)
     assert not path_within("/tmpfoo/evil", roots)
-    assert not path_within("/home/artifacts/evil", roots)
+    assert not path_within("/srv/application/evil", roots)
     assert not path_within("/etc/passwd", roots)
 
 

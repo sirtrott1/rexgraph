@@ -318,6 +318,9 @@ def _drm_cards(driver_match) -> list:
 
     out = []
     for dev in sorted(glob.glob("/sys/class/drm/card*/device")):
+        card = os.path.basename(os.path.dirname(dev))
+        if not card.startswith("card") or not card[4:].isdigit():
+            continue
         drv = pci = None
         try:
             with open(os.path.join(dev, "uevent")) as f:

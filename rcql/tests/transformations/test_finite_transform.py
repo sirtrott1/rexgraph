@@ -37,10 +37,10 @@ def test_linked_program_exactness(rule):
     assert result.values == (2*(Q(2**140+1,7)+1),Q(2**140+1,7))
     assert result.aliases==('answer','original')
     assert t.original().to_bytes()==p.to_bytes()
-    proof=t.verify(p)
-    assert proof['source_selectors']
-    assert proof['topology_status'].startswith('bound static plan required')
-    assert 'components' not in proof
+    verification=t.verify(p)
+    assert verification['source_selectors']
+    assert verification['topology_status'].startswith('bound static plan required')
+    assert 'components' not in verification
 
 
 @pytest.mark.parametrize('rule,args', [('input',['x','r']),('input',['x','v']),('input',['x','x']),

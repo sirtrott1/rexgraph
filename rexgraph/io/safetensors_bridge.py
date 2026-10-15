@@ -1019,14 +1019,8 @@ def state_to_safetensors_bytes(state):
     return raw
 
 
-def state_from_safetensors_bytes(raw: bytes):
-    """Read and verify canonical state without reconstructing a graph.
-
-    This supports prepared ingest and content identity. It accepts plaintext
-    safetensors bytes containing a static or temporal state; callers open any
-    encryption or compression frame first. Legacy unsealed temporal state is
-    refused rather than assigned an invented semantic identity.
-    """
+def _load_tensor_bytes(raw: bytes):
+    """Read bounded plaintext tensors and strict metadata from an owned buffer."""
     from safetensors.numpy import load
     from safetensors import SafetensorError
     if type(raw) is not bytes or not 8 <= len(raw) <= 256*1024*1024:
@@ -1059,6 +1053,27 @@ def state_from_safetensors_bytes(raw: bytes):
         tensors = load(raw)
     except (KeyError, TypeError, UnicodeDecodeError, json.JSONDecodeError, SafetensorError) as exc:
         raise ValueError("invalid safetensors state declaration") from exc
+    return tensors, metadata, meta
+
+
+def load_safetensors_bytes(raw: bytes, *, verify=True):
+    """Reconstruct a graph or history with the same codecs as the file reader."""
+    tensors, metadata, _ = _load_tensor_bytes(raw)
+    meta = _meta_from_raw(metadata, "<bytes>")
+    if meta.get("object_type") == "RexGraph":
+        return _rex_from_loaded(tensors, meta, verify=verify)
+    if meta.get("object_type") == "TemporalRex":
+        return _temporal_from_loaded(tensors, meta)
+    raise ValueError("safetensors payload has no graph or temporal state")
+
+
+def state_from_safetensors_bytes(raw: bytes):
+    """Read and verify canonical state without reconstructing a graph.
+
+    Plaintext static or temporal state retains its semantic verification;
+    legacy unsealed temporal state is not assigned a new identity.
+    """
+    tensors, _metadata, meta = _load_tensor_bytes(raw)
     if meta.get("object_type") == "RexGraph":
         from rexgraph.state import verify_state
         state = _rex_state_from_loaded(tensors, meta)

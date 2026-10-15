@@ -43,16 +43,12 @@ def greens_budget() -> int:
 
 
 def coherence_kappa(rex) -> np.ndarray:
-    """Per vertex coherence kappa, shape (nV,), at any scale. THE default read.
+    """Return per vertex local coherence with shape (nV,).
 
-    This is `local_coherence`: kappa against the star average character, O(nnz), so
-    it answers on a complex of any size. Its companion `rex.coherence` is a
-    different moment of the same propagator (kappa against the global Green's phi),
-    not a more accurate version of this one: on real complexes the two correlate
-    anywhere from -0.30 to +0.99, and the global read costs one block CG solve per
-    vertex because its sandwiched two inverse numerator resists selected inversion.
-    Reach for that one through `coherence_greens`, which gates it, and report it
-    under its own key rather than mixing the two in one field."""
+    This reads ``rex.local_coherence``, which compares local and star average character
+    without a global Green solve. ``coherence_greens`` provides the separate global
+    quantity under its configured vertex budget. Non finite local values become zero.
+    """
     with contextlib.suppress(Exception):
         k = np.asarray(rex.local_coherence, dtype=float).ravel()
         if k.size:

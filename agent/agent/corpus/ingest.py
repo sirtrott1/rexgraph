@@ -144,13 +144,11 @@ def ingest_corpus(paths, store, *, profile=None, workers: int | None = None,
     n = workers if workers is not None else max(1, (os.cpu_count() or 2) - 1)
     n = min(n, total)
     t0 = time.perf_counter()
-    # forkserver: a clean single threaded child, which is the pattern the pipeline
-    # workers already use. `fork` inherits this process's threads and its BLAS pools.
-    ctx = multiprocessing.get_context("forkserver")
-    # The window is BOUNDED. Submitting every path at once lets the workers run ahead of
-    # the parent's writes, and each finished result holds its blob: 1.4 MiB on the
-    # measured average, so an unbounded queue is the whole corpus in memory. Keeping a
-    # few tasks per worker in flight is enough to never leave one idle.
+    # Keep workers independent of the parent's threads and native pools.
+    method = "forkserver" if "forkserver" in multiprocessing.get_all_start_methods() else "spawn"
+    ctx = multiprocessing.get_context(method)
+    # Bound pending work so completed blobs do not accumulate faster than
+    # the parent can persist them. Keep several tasks per worker in flight.
     window = max(2 * n, 32)
     with ProcessPoolExecutor(max_workers=n, mp_context=ctx) as ex:
         from collections import deque

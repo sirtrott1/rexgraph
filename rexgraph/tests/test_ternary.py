@@ -220,7 +220,7 @@ def test_hip_availability_releases_its_successful_probe(monkeypatch):
 def _hip():
     from rexgraph import hip_ternary
     if not hip_ternary.available():
-        pytest.skip("the HIP ternary lane is not built on this machine")
+        pytest.skip("a HIP GPU with compatible packed kernels is required")
     return hip_ternary
 
 

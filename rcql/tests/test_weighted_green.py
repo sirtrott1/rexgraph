@@ -87,7 +87,7 @@ def test_invalid_carriers_are_refused_before_adapter(bad, explain, monkeypatch):
         run(r, ("EXPLAIN " if explain else "")+text, x=x)
 
 
-def test_computed_metric_proof_is_deferred_and_invalid_value_refused():
+def test_computed_metric_validation_is_deferred_and_invalid_value_refused():
     text = "FROM $r RETURN RESOLVENT(HODGE_SUM(1, METRIC(1,ZERO(1))))"
     explained = run(make(), "EXPLAIN "+text)
     encoded = json.dumps(explained.values)

@@ -8,10 +8,10 @@ agent.server.routes.ocr: OCR endpoint for the agent server.
 from __future__ import annotations
 
 import os
-import tempfile
 import time
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from agent.server.upload_files import temporary_upload
 
 router = APIRouter(prefix="/v1")
 
@@ -24,24 +24,9 @@ async def ocr_file(
     dpi: int = Form(300),
 ):
     """OCR an uploaded file or server local path."""
-    from agent.integrations.unlimited_ocr import (
-        create_ocr_client,
-        is_image_file,
-        is_pdf_file,
-    )
-
-    # Resolve the file to OCR
-    cleanup_path = None
     if file and file.filename:
-        # Save upload to temp file
-        suffix = os.path.splitext(file.filename)[1] or ".bin"
-        with tempfile.NamedTemporaryFile(
-            suffix=suffix, delete=False, dir=tempfile.gettempdir()
-        ) as tmp:
-            content = await file.read()
-            tmp.write(content)
-            ocr_path = tmp.name
-            cleanup_path = tmp.name
+        async with temporary_upload(file) as ocr_path:
+            return _run_ocr(ocr_path, backend, dpi, file.filename)
     elif path:
         # This had no allow list at all, only an existence check, which made it both an
         # arbitrary read for anything the OCR backend accepts and an existence oracle for
@@ -59,6 +44,14 @@ async def ocr_file(
             status_code=400,
             detail="Provide either a file upload or a path parameter",
         )
+    return _run_ocr(ocr_path, backend, dpi, path)
+
+
+def _run_ocr(ocr_path, backend, dpi, source):
+    """Process a validated source path or an owned temporary upload."""
+    from agent.integrations.unlimited_ocr import (
+        create_ocr_client, is_image_file, is_pdf_file,
+    )
 
     # Create client
     kwargs = {}
@@ -68,8 +61,6 @@ async def ocr_file(
     try:
         client = create_ocr_client(**kwargs)
     except Exception as e:
-        if cleanup_path:
-            os.unlink(cleanup_path)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to create OCR client: {e}",
@@ -105,9 +96,6 @@ async def ocr_file(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OCR failed: {e}") from e
-    finally:
-        if cleanup_path and os.path.exists(cleanup_path):
-            os.unlink(cleanup_path)
 
     elapsed = time.time() - start
 
@@ -116,7 +104,7 @@ async def ocr_file(
         "pages": pages,
         "backend": getattr(client, "backend_name", type(client).__name__),
         "elapsed": round(elapsed, 2),
-        "source": file.filename if file else path,
+        "source": source,
     }
 
 
@@ -125,7 +113,8 @@ async def ocr_status():
     """OCR backend detection with install status and commands."""
     import importlib
     import shutil
-    from pathlib import Path
+    from agent.data_paths import models_root, huggingface_cache_root
+    from agent.model_files import has_model_weights, cached_model_path
 
     backends = {}
     gpu = "rocm" if shutil.which("rocminfo") else (
@@ -141,8 +130,10 @@ async def ocr_status():
 
     # vLLM / Unlimited OCR
     vllm_installed = importlib.util.find_spec("vllm") is not None
-    model_dir = Path.home() / ".cache" / "rexgraph" / "models" / "deepseek-ai--DeepSeek-OCR-2"
-    model_downloaded = model_dir.exists() and any(model_dir.iterdir()) if model_dir.exists() else False
+    model_id = "deepseek-ai/DeepSeek-OCR-2"
+    model_dir = models_root() / model_id.replace("/", "--")
+    model_downloaded = (has_model_weights(model_dir)
+                        or cached_model_path(model_id, huggingface_cache_root()) is not None)
 
     try:
         from agent.cli.serve import server_status
@@ -177,17 +168,16 @@ async def ocr_status():
 
     # GOT-OCR2.0
     got_libs = (importlib.util.find_spec("transformers") is not None
-                and importlib.util.find_spec("torch") is not None)
-    got_model = False
-    if got_libs:
-        got_model_dir = Path.home() / ".cache" / "huggingface" / "hub" / "models--stepfun-ai--GOT-OCR-2.0-hf"
-        got_snapshots = got_model_dir / "snapshots"
-        got_model = got_snapshots.exists() and any(got_snapshots.iterdir())
+                and importlib.util.find_spec("torch") is not None
+                and importlib.util.find_spec("accelerate") is not None)
+    from agent.integrations.unlimited_ocr import GOTOCRClient
+    got_model = GOTOCRClient()._model_cached()
     backends["got_ocr"] = {
         "installed": got_libs and got_model,
         "libraries": got_libs,
         "model_downloaded": got_model,
-        "loaded": ocr_loaded,
+        "loaded": ocr_loaded and any(m.get("model_id") == "stepfun-ai/GOT-OCR-2.0-hf"
+                                     for m in mgr_status.get("loaded", [])),
         "type": "local-gpu",
         "install": "make install-got-ocr" if not (got_libs and got_model) else None,
     }

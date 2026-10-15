@@ -1,10 +1,8 @@
-"""Separating multiplicity from topology in the cycle space.
+"""Check cycle dimensions created by duplicate boundary columns.
 
-Two relations can be distinct and still have the same boundary: two occurrences of
-one token are two spans, so two witnesses on one vertex. Their difference has zero
-boundary, so it is a cycle, but it records an occurrence count rather than a hole.
-On the Gutenberg store that is 39 to 85 percent of beta_1, so a cycle reading that
-does not separate them is mostly reading multiplicity.
+Distinct relation identities can share a boundary. Their difference is
+a multiplicity cycle. Fixtures compare multiplicity groups and dimensions
+with the cycle space after duplicate columns are identified.
 """
 import itertools
 
@@ -102,8 +100,7 @@ def test_branching_relations_group_at_their_own_arity():
 
 
 def test_the_limit_bounds_the_column_count():
-    """d runs to 1.5e6 on a full book, so materialising every cycle is not the
-    default a caller should get by accident."""
+    """A requested limit bounds the number of materialized cycle columns."""
     r = _g([0] * 20, [1] * 20)
     assert multiplicity_dimension(r) == 19
     assert multiplicity_cycles(r, limit=5).shape[1] == 5

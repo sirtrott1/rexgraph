@@ -1,13 +1,8 @@
-"""retrieve_sections ranks over an RCStore.
+"""Check ranked section retrieval from stored relational complexes.
 
-The consumer half of the seam. retrieve_sections had two modes (an in memory
-CorpusBuilder, or a single document) so a persisted corpus was unreachable from
-the query path even after slice 1 put it in the store. Store mode closes that, and
-ranks with the same score_document the in memory path uses rather than a second
-copy of the ranking.
-
-The prefilter is the point: a signature is queryable without touching a blob, so
-only candidates get deserialized.
+The store path uses stored signatures to select candidates before opening their
+payloads. Tests compare ranking with in memory retrieval and verify passage text,
+result limits and store selection through the query interface.
 """
 
 import pytest

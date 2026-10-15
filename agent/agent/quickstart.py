@@ -145,16 +145,14 @@ def plan(path: str = ".", *, store: str | None = None) -> Plan:
     backend = rec["backend"]
     uri = store if (store and "://" in store) else f"{backend}://{store_root}"
 
-    # depth follows the work, not a preference: the signature is ~94% of a put, so
-    # the number of files is what decides whether the full pipeline is affordable.
+    # Select the initial analysis depth from the number of readable files.
     n = max(scan["readable"], 1)
     if n <= 200:
-        depth, why = "standard", f"{n} readable files: the full pipeline is cheap here"
+        depth, why = "standard", f"{n} readable files: use standard analysis"
     elif n <= 5000:
         depth, why = "standard", f"{n} readable files"
     else:
-        depth, why = "quick", (f"{n} readable files: analysis is ~94% of ingest, so "
-                               f"quick first and deepen what matters")
+        depth, why = "quick", f"{n} readable files: use quick analysis for the initial ingestion"
 
     missing = {}
     if not _have("duckdb"):
@@ -207,11 +205,11 @@ def install(p: Plan, *, yes: bool = False) -> dict[str, Any]:
 
 def run(p: Plan, *, limit: int | None = None, persist: bool = True,
         progress=None) -> dict[str, Any]:
-    """Ingest, build, persist and index, on the plan's own terms.
+    """Ingest files selected by a plan and optionally persist their complexes.
 
-    Returns the corpus and the store. The store is indexed before returning, so the
-    next process to open it memory maps rather than replaying: with the pipeline
-    ending here, that is the one moment it is certainly worth paying for.
+    Returns the corpus and an open store handle. Legacy stores exposing
+    write_index save their index snapshot before returning. Native stores
+    build requested metadata indexes as needed. The caller closes the store.
     """
     import time
 

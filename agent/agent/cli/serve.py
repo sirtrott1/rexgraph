@@ -29,9 +29,7 @@ from .config import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_PORT = 10000
-# A first run downloads a multi GB model AND loads it onto the GPU via vLLM; 120s reported a false
-# TIMEOUT while the server was still legitimately loading. Env configurable; 15 min covers a cold
-# download. (A broken model still fails fast via the process died check below.)
+# Allow time for initial model downloads and GPU loading; callers may override the limit.
 HEALTH_TIMEOUT = int(os.environ.get("REXGRAPH_OCR_HEALTH_TIMEOUT", "900"))
 HEALTH_INTERVAL = 2      # seconds between health checks
 
@@ -96,29 +94,37 @@ def serve(
     print(f"  Command: {' '.join(cmd)}")
 
     if foreground:
-        # Blocking: run in the current process
         try:
             proc = subprocess.Popen(cmd)
+        except OSError as exc:
+            print(f"Failed to start server: {exc}")
+            return False
+        try:
             save_pid(proc.pid, port, backend)
-            proc.wait()
+            return proc.wait() == 0
         except KeyboardInterrupt:
             print("\nShutting down...")
             proc.terminate()
-            proc.wait(timeout=10)
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            return True
+        finally:
             clear_pid()
-        return True
 
     # Background: fork and wait for health
     try:
         log_file = Path(cfg.cache_dir) / "server.log"
-        log_fd = open(log_file, "a")
-
-        proc = subprocess.Popen(
-            cmd,
-            stdout=log_fd,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,   # detach from terminal
-        )
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_file, "a", encoding="utf-8") as log_fd:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=log_fd,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
         save_pid(proc.pid, port, backend)
 
         print(f"  PID: {proc.pid}")
@@ -221,8 +227,10 @@ def wait_for_health(
     interval: int = HEALTH_INTERVAL,
     log_file=None,
 ) -> bool:
-    """Poll /health and /v1/models until the server responds 200. Surfaces the server log (what it
-    is actually doing: downloading, loading weights) instead of a wall of dots."""
+    """Poll health and model endpoints until either returns HTTP 200 or time expires.
+
+    When a log path is supplied, report startup progress from its recent lines.
+    """
     import urllib.error
     import urllib.request
 

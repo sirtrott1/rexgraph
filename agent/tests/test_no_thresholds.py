@@ -1,12 +1,4 @@
-"""Decisions come from structure, not from magic numbers.
-
-Standing directive: never drive logic with a hardcoded threshold. Where a quantity is a
-continuum the cutoff comes from the data's OWN distribution (the Tukey lower fence this
-codebase already uses in `engine.py` and `hive.py`); where an exact invariant exists the
-cutoff should not exist at all.
-
-These pin the sites that were fixed, so the numbers cannot come back.
-"""
+"""Regression checks for structural comparisons and distribution based filters."""
 import numpy as np
 
 from rexgraph.bridges import bridge_mask
@@ -131,15 +123,14 @@ def test_health_ratio_crosses_at_one_and_the_text_already_said_so():
 
 
 def test_the_varentropy_gap_is_an_exactness_test_not_a_band():
-    """Measured, the gap is machine zero where H2 is exact and O(1e-2) where it is not
-    13 orders apart with nothing between. The reliability predicate must distinguish these cases."""
-    exact_gaps = [5.5511e-16, 1.1102e-15]
-    inexact_gap = 4.3010e-02
+    """Synthetic rounding residuals pass while a larger residual below 0.05 fails."""
+    exact_gaps = [np.finfo(np.float64).eps, 4 * np.finfo(np.float64).eps]
+    inexact_gap = 0.04
     def reliable(gap, H2):
         return abs(gap) <= 1e-9 * max(abs(H2), 1.0)
     for gp in exact_gaps:
-        assert reliable(gp, 0.693147)
-    assert not reliable(inexact_gap, 1.556193)
+        assert reliable(gp, 0.5)
+    assert not reliable(inexact_gap, 1.5)
     assert inexact_gap < 0.05, "the old constant certified this case"
 
 

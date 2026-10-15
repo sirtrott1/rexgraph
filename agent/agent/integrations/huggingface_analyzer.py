@@ -1,5 +1,5 @@
 """
-HuggingFace transformer analyzer: measure RCF axiom compliance.
+HuggingFace transformer analyzer: measure boundary closure and grading residuals.
 
 Takes any HuggingFace transformer and measures how closely its internal
 representations match the algebraic structure of a relational complex.
@@ -148,7 +148,7 @@ def analyze_transformer(
     max_layers: int = -1,
     attention_threshold: float = 0.05,
 ) -> dict:
-    """Analyze a HuggingFace transformer for RCF axiom compliance.
+    """Analyze a HuggingFace transformer for boundary closure and grading residuals.
 
     Runs inference, captures attention patterns at each layer,
     builds a relational complex from each, and measures:

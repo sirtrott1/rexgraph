@@ -109,19 +109,26 @@ def arrays_to_arrow(
     max_len = 0
 
     for name, arr in arrays.items():
+        if type(name) is not str or not name:
+            raise ValueError("Arrow array names must be nonempty strings")
         arr = np.asarray(arr)
         array_meta[name] = {
             "shape": list(arr.shape),
             "dtype": str(arr.dtype),
             "is_complex": bool(np.iscomplexobj(arr)),
         }
-        flat = arr.ravel()
+        flat = arr.astype(arr.dtype.newbyteorder("="), copy=False).ravel()
         max_len = max(max_len, len(flat))
 
         if np.iscomplexobj(arr):
+            if any(f"{name}{suffix}" in arrays or f"{name}{suffix}" in columns
+                   for suffix in ("__real", "__imag")):
+                raise ValueError(f"Arrow complex column {name!r} collides with a physical column")
             columns[f"{name}__real"] = flat.real
             columns[f"{name}__imag"] = flat.imag
         else:
+            if name in columns:
+                raise ValueError(f"Arrow column {name!r} collides with a complex column")
             columns[name] = flat
 
     # Pad to uniform length
@@ -146,6 +153,31 @@ def arrays_to_arrow(
     return table.replace_schema_metadata(schema_meta)
 
 
+def _array_metadata(schema):
+    """Validate declared array shapes and their distinct physical columns."""
+    if len(set(schema.names)) != len(schema.names):
+        raise ValueError("Arrow columns must have distinct names")
+    metadata = json.loads((schema.metadata or {}).get(b"rex_array_meta", b"{}"))
+    if type(metadata) is not dict:
+        raise ValueError("invalid Arrow array metadata")
+    claimed = set()
+    for name, info in metadata.items():
+        if (type(name) is not str or not name or type(info) is not dict
+                or set(info) != {"shape", "dtype", "is_complex"}
+                or type(info["shape"]) is not list or len(info["shape"]) > 64
+                or any(type(n) is not int or n < 0 for n in info["shape"])
+                or type(info["is_complex"]) is not bool):
+            raise ValueError("invalid Arrow array declaration")
+        dtype = np.dtype(info["dtype"])
+        if (dtype.kind == "c") != info["is_complex"]:
+            raise ValueError("Arrow complex declaration differs from its dtype")
+        physical = {name + "__real", name + "__imag"} if info["is_complex"] else {name}
+        if claimed.intersection(physical) or not physical <= set(schema.names):
+            raise ValueError("missing or colliding Arrow physical columns")
+        claimed.update(physical)
+    return metadata
+
+
 def arrow_to_arrays(table) -> dict[str, np.ndarray]:
     """Convert a `pyarrow.Table` back to a dict of NumPy arrays.
 
@@ -159,48 +191,30 @@ def arrow_to_arrays(table) -> dict[str, np.ndarray]:
     Returns
     dict of name -> ndarray
     """
-    pa, _ = _pa()
-
-    schema_meta = table.schema.metadata or {}
-    array_meta: dict[str, dict] = {}
-    if b"rex_array_meta" in schema_meta:
-        array_meta = json.loads(
-            schema_meta[b"rex_array_meta"].decode("utf-8")
-        )
-
-    # Read all columns into numpy
-    raw: dict[str, np.ndarray] = {}
-    for col_name in table.column_names:
-        raw[col_name] = table.column(col_name).to_numpy()
-
-    result: dict[str, np.ndarray] = {}
-    consumed: set = set()
-
+    from math import prod
+    _pa()
+    array_meta = _array_metadata(table.schema)
+    result, consumed = {}, set()
     for name, info in array_meta.items():
-        shape = tuple(info["shape"])
-        dtype = np.dtype(info["dtype"])
-        n_elem = 1
-        for s in shape:
-            n_elem *= s
-        is_complex = info.get("is_complex", False)
-
-        if is_complex:
-            rk = f"{name}__real"
-            ik = f"{name}__imag"
-            if rk in raw and ik in raw:
-                arr = raw[rk][:n_elem] + 1j * raw[ik][:n_elem]
-                result[name] = arr.reshape(shape).astype(dtype)
-                consumed.update((rk, ik))
+        shape, dtype = tuple(info["shape"]), np.dtype(info["dtype"])
+        n_elem = prod(shape)
+        if n_elem > table.num_rows:
+            raise ValueError("Arrow array shape exceeds its stored rows")
+        # Slice before materializing NumPy data, so a short tensor never reads
+        # the padding belonging to a longer unrelated tensor.
+        if info["is_complex"]:
+            rk, ik = name + "__real", name + "__imag"
+            array = np.empty(n_elem, dtype=dtype)
+            array.real = table.column(rk).slice(0, n_elem).to_numpy()
+            array.imag = table.column(ik).slice(0, n_elem).to_numpy()
+            consumed.update((rk, ik))
         else:
-            if name in raw:
-                result[name] = raw[name][:n_elem].reshape(shape).astype(dtype)
-                consumed.add(name)
-
-    # Passthrough any unknown columns
-    for col_name, col_arr in raw.items():
-        if col_name not in consumed:
-            result[col_name] = col_arr
-
+            array = table.column(name).slice(0, n_elem).to_numpy().astype(dtype, copy=False)
+            consumed.add(name)
+        result[name] = array.reshape(shape)
+    for name in table.column_names:
+        if name not in consumed:
+            result[name] = table.column(name).to_numpy()
     return result
 
 
@@ -283,8 +297,10 @@ def write_arrow_ipc(
     table = arrays_to_arrow(arrays, metadata=metadata)
     fpath = os.fspath(path)
 
-    with pa.OSFile(fpath, "wb") as sink, ipc.new_file(sink, table.schema) as writer:
-        writer.write_table(table)
+    from .publication import staged_publication
+    with staged_publication(fpath) as staged:
+        with pa.OSFile(str(staged), "wb") as sink, ipc.new_file(sink, table.schema) as writer:
+            writer.write_table(table)
 
 
 def read_arrow_ipc(path: str | os.PathLike) -> dict[str, np.ndarray]:
@@ -325,58 +341,41 @@ def read_arrow_batches(
     path : str or path-like
         Arrow IPC file.
     batch_rows : int
-        Target rows per batch.
+        Positive bound on flattened file rows per chunk. Multidimensional
+        arrays retain partial rows until complete, so one output may also
+        include a previously buffered row. Scalars yield a length-one vector.
 
     Yields
     dict of name -> ndarray
     """
+    if type(batch_rows) is not int or batch_rows <= 0:
+        raise ValueError("Arrow batch_rows must be a positive integer")
     pa, ipc = _pa()
-
-    fpath = os.fspath(path)
-    with pa.OSFile(fpath, "rb") as source:
+    with pa.memory_map(os.fspath(path), "r") as source:
         reader = ipc.open_file(source)
-
-        # The `rex_array_meta` shapes describe the WHOLE array, not a single
-        # batch.  Streaming hands out one slice of the flattened columns at a
-        # time, so we cannot reshape a partial batch to the full shape (that is
-        # the historical ValueError).  Instead we track a running flat-row
-        # offset and reshape each batch against only the rows it actually
-        # holds, dropping any padding rows past an array's true length.
-        schema_meta = reader.schema.metadata or {}
-        array_meta: dict[str, dict] = {}
-        if b"rex_array_meta" in schema_meta:
-            array_meta = json.loads(
-                schema_meta[b"rex_array_meta"].decode("utf-8")
-            )
-
+        array_meta = _array_metadata(reader.schema)
+        tails = {}
         row_offset = 0
-        pending_batches = []
-        pending_rows = 0
-
+        emitted = False
         for i in range(reader.num_record_batches):
             batch = reader.get_batch(i)
-            pending_batches.append(batch)
-            pending_rows += batch.num_rows
-
-            if pending_rows >= batch_rows:
-                table = pa.Table.from_batches(
-                    pending_batches, schema=reader.schema
-                )
-                yield _arrow_batch_to_arrays(table, array_meta, row_offset)
-                row_offset += pending_rows
-                pending_batches = []
-                pending_rows = 0
-
-        if pending_batches:
-            table = pa.Table.from_batches(
-                pending_batches, schema=reader.schema
-            )
-            yield _arrow_batch_to_arrays(table, array_meta, row_offset)
-            row_offset += pending_rows
+            for start in range(0, batch.num_rows, batch_rows):
+                piece = batch.slice(start, batch_rows)
+                table = pa.Table.from_batches([piece], schema=reader.schema)
+                yield _arrow_batch_to_arrays(table, array_meta, row_offset, tails=tails)
+                row_offset += piece.num_rows
+                emitted = True
+        from math import prod
+        if (any(value.size for value in tails.values())
+                or any(prod(info["shape"]) > row_offset for info in array_meta.values())):
+            raise ValueError("Arrow stream ended before its complete declared arrays")
+        if not emitted:
+            table = pa.Table.from_batches([], schema=reader.schema)
+            yield _arrow_batch_to_arrays(table, array_meta, 0, tails=tails)
 
 
 def _arrow_batch_to_arrays(
-    table, array_meta: dict[str, dict], row_offset: int
+    table, array_meta: dict[str, dict], row_offset: int, *, tails=None
 ) -> dict[str, np.ndarray]:
     """Reconstruct arrays from a single streamed sub-table.
 
@@ -403,6 +402,7 @@ def _arrow_batch_to_arrays(
     for col_name in table.column_names:
         raw[col_name] = table.column(col_name).to_numpy()
 
+    tails = {} if tails is None else tails
     batch_rows = table.num_rows
     result: dict[str, np.ndarray] = {}
     consumed: set = set()
@@ -423,21 +423,28 @@ def _arrow_batch_to_arrays(
         # flat range [row_offset, row_offset + batch_rows) intersected with
         # this array's real extent [0, n_elem).
         valid = max(0, min(row_offset + batch_rows, n_elem) - row_offset)
-        lead = valid // inner if inner else 0
-        out_shape = (lead,) + shape[1:]
+        def rows(values):
+            previous = tails.pop(name, None)
+            if previous is not None and previous.size:
+                values = np.concatenate((previous, values))
+            if inner == 0:
+                return np.empty(shape if row_offset == 0 else (0,) + shape[1:], dtype=dtype)
+            complete = values.size // inner * inner
+            tails[name] = values[complete:].copy()
+            return values[:complete].reshape((complete // inner,) + shape[1:]).astype(dtype)
 
         if is_complex:
             rk = f"{name}__real"
             ik = f"{name}__imag"
             if rk in raw and ik in raw:
-                arr = raw[rk][:valid] + 1j * raw[ik][:valid]
-                result[name] = arr.reshape(out_shape).astype(dtype)
+                arr = np.empty(valid, dtype=dtype)
+                arr.real = raw[rk][:valid]
+                arr.imag = raw[ik][:valid]
+                result[name] = rows(arr)
                 consumed.update((rk, ik))
         else:
             if name in raw:
-                result[name] = (
-                    raw[name][:valid].reshape(out_shape).astype(dtype)
-                )
+                result[name] = rows(raw[name][:valid])
                 consumed.add(name)
 
     # Passthrough any unknown columns (no metadata) as-is.

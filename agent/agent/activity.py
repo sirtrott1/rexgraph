@@ -24,6 +24,8 @@ Journal location: $REXGRAPH_ACTIVITY_JOURNAL, else $REXGRAPH_CONFIG_DIR/activity
 """
 from __future__ import annotations
 
+from agent.data_paths import config_root
+
 import contextlib
 import itertools
 import json
@@ -63,9 +65,7 @@ def _journal_default() -> Path | None:
         return Path(env).expanduser()
     if os.environ.get("REXGRAPH_NO_JOURNAL", "").strip().lower() in ("1", "true", "yes"):
         return None
-    cfg = os.environ.get("REXGRAPH_CONFIG_DIR")
-    base = Path(cfg).expanduser() if cfg else (Path.home() / ".config" / "rexgraph")
-    return base / "activity.jsonl"
+    return config_root() / "activity.jsonl"
 
 
 #: How an act is oriented against the thing it acted on. `write` sends the actor's

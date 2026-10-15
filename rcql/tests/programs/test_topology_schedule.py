@@ -153,7 +153,7 @@ def test_readout_certificate_true_false_and_tamper():
     assert not no.equivalent
     with pytest.raises(ValueError):no.replacement(f,a,b)
     with pytest.raises(ValueError):replace(cert,equivalent=False).verify(f,a,c)
-    answer=Executor(sources={'r':r},params={'f':f,'a':a,'c':c}).execute(parse('FROM $r LET proof=SECTION_EQUIVALENT($f,$a,$c) RETURN proof.equivalent,proof.family_dimension'))
+    answer=Executor(sources={'r':r},params={'f':f,'a':a,'c':c}).execute(parse('FROM $r LET verification=SECTION_EQUIVALENT($f,$a,$c) RETURN verification.equivalent,verification.family_dimension'))
     assert answer.values==(True,2)
 
 @pytest.mark.parametrize('seed',range(10))

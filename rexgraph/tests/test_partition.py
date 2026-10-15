@@ -1,9 +1,9 @@
-"""The leverage refines the rank, so a sectioning of the relations must close.
+"""Check section rank and cycle measurements.
 
-These pin the two theorems the readings rest on rather than the values they produce:
-the masses of a partition total rank(B1), and no section's own cycles exceed its share
-of the global cycle space. Both are asserted inside `section_readings`, so a regression
-raises there rather than returning a plausible number.
+For disjoint sections covering all relations, masses must sum to rank(B1).
+Each section's own cycle dimension must not exceed its share of the global
+cycle dimension. The tests exercise these checks and the response measurements
+on overlapping sections as well as complete partitions.
 """
 from __future__ import annotations
 
@@ -451,7 +451,7 @@ def test_coverage_is_the_candidate_reading_not_the_face_state():
                 f"nullity {nullity} against pair_cycles {pair_cycles} + "
                 f"covered {covered}")
     assert {"open", "bounds", "degenerate"} <= seen_states, (
-        "the fixture must exercise all three states or it proves nothing")
+        "the fixture must exercise all three states")
 
 
 def test_the_candidate_decision_never_rests_on_the_band():
@@ -518,15 +518,11 @@ _LAYERED_BOOK = ("*** START OF THE PROJECT GUTENBERG EBOOK X ***\n\n"
 
 
 def test_the_channel_profile_is_the_scalar_before_it_was_summed():
-    """`section_response` returns a scalar per section, and that scalar is the profile
-    summed over (topology, geometry, frustration, coparticipation). Asking for the
-    profile adds nothing to the computation: it stops throwing the axes away.
+    """Check that the channel profile sums to the scalar section response.
 
-    This matters because the channels move in OPPOSITE directions between a section that
-    answers a query and one that merely shares vocabulary with it: measured over 237
-    queries, topology 0.2379 against 0.2161 and coparticipation 0.2053 against 0.2570.
-    Summing them annihilates that difference exactly, which is why every scalar reading
-    sat at chance on the question."""
+    The profile retains the T, G, F and C channel values for each section.
+    The scalar response sums those values for the same input signal.
+    """
     import numpy as np
 
     from rexgraph.corpus_profile import ENGLISH_GUTENBERG, tokenize

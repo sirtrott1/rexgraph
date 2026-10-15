@@ -1017,7 +1017,7 @@ def read_protected_tensor(
     ]
     if protected and not chosen:
         # An empty first axis selection returns no payload, but it must still
-        # prove possession of the tensor's key instead of becoming an auth bypass.
+        # verify possession of the tensor's key instead of becoming an auth bypass.
         chunk_size = member["chunk_size"]
         chosen = [min(byte_start // chunk_size, member["chunk_count"] - 1)]
 

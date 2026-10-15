@@ -1,82 +1,171 @@
-# Runtime dependencies
+# Dependencies and installation profiles
 
-Core, RCQL and the base RCDB record stores do not require SciPy. NumPy remains
-required. Core numerical actions use its compiled sparse kernels and native
-BLAS and LAPACK libraries. Exact boundary actions and rank use the existing
-integer and rational routines. Removing SciPy does not make numerical actions
-exact or remove the system libraries needed to compile the kernels.
+RexGraph separates the Core library from its applications and optional
+integrations. The base Core package requires NumPy and threadpoolctl, while its
+compiled kernels link to BLAS/LAPACK and use OpenMP when enabled. The installer
+provides the compiler and native libraries through conda, or uses the host
+compiler and libraries with the pip installation path.
 
-## Installation profiles
+`make install` installs the standard application profile. `make install-core`
+installs the library by itself, and `make install-ml` adds the numerical model
+components. `make install-dev` supplies the standard development dependencies;
+`make install-dev-full` adds the optional CPU features needed by the broader
+test suites. The [README](README.md#installation) gives the installation commands.
 
-Install local packages in dependency order, with Core first:
+## Package dependencies
+
+| Package | Base requirements | Optional features |
+| --- | --- | --- |
+| Core | NumPy, threadpoolctl, compiled BLAS/LAPACK linkage | File formats, signing, SciPy exports, models, TensorFlow and molecular input |
+| RCDB | Core, NumPy, safetensors | SQLAlchemy stores, fsspec stores, cryptography and older SciPy search APIs |
+| RCQL | Core, NumPy | Supplied RCDB sources; SymPy for development reference tests |
+| System | Core, RCQL, FastAPI, uvicorn | Registered RCDB sources |
+| Agent | Core, RCDB, NumPy, SciPy, pandas | Server, connectors, OCR, model tools, analytics and integrations |
+
+Core, RCQL and base RCDB record operations run without SciPy. Exact ranks,
+boundary actions, native records and declared coefficient storage use the Core
+implementations. Explicit SciPy matrix exports and some older numerical analysis
+APIs require the `scipy` extra. An extra supplies dependencies; requesting an
+operator or algorithm remains a separate API choice.
+
+Core requires NumPy 2. Optional numerical and file adapters use compatible
+dependency floors: [SciPy 1.13](https://docs.scipy.org/doc/scipy-1.13.0/release/1.13.0-notes.html),
+[pandas 2.2.2](https://pandas.pydata.org/docs/whatsnew/v2.2.2.html),
+[h5py 3.11](https://docs.h5py.org/en/stable/whatsnew/3.11.html) and
+[Arrow 16](https://arrow.apache.org/blog/2024/04/20/16.0.0-release/).
+These requirements prevent older binary adapters from being retained when
+installing into an existing environment.
+
+## Core extras
+
+| Extra | Dependencies and purpose |
+| --- | --- |
+| `io` | safetensors, Zarr, HDF5, Arrow/Parquet, SQLAlchemy, pandas and XLSX readers |
+| `security` | cryptography for encryption and signatures |
+| `scipy`, `oracles` | SciPy compatibility exports and reference comparisons |
+| `nn` | PyTorch and SciPy for the numerical neural and cochain model components |
+| `tf` | TensorFlow for the TensorFlow relational layer |
+| `molecules` | RDKit for molecular syntax and source interpretation |
+| `dev` | pytest, lint/type tools, build tools and SciPy reference tests |
+| `all` | `io` and `security` |
+
+Core's `all` extra includes file formats and signing. Install model dependencies
+and device runtimes through their corresponding extras and installation profiles. The native RCBD container uses
+the base package, while HDF5, Zarr, Arrow, Parquet and XLSX require their format
+dependencies.
+
+## Agent extras
+
+The standard profile combines the server, schema, connectors, OCR bindings,
+training export and YAML configuration extras. It does not install a model
+runtime or model weights.
+
+| Extra | Dependencies and purpose |
+| --- | --- |
+| `ml` | Core neural components and Hugging Face training/analysis tools |
+| `molecules` | Core's RDKit adapter |
+| `analytics` | DuckDB and Polars for queries and table views over stored signatures |
+| `baselines` | scikit learn, LightGBM and XGBoost for numerical comparisons over stored features |
+| `langchain`, `langgraph`, `trustgraph` | The selected framework integration |
+| `warehouse` | SQLAlchemy dialects for Snowflake, BigQuery, Redshift and Databricks |
+| `objectstore-cloud` | S3, Google Cloud Storage and Azure filesystem drivers |
+| `oidc` | OIDC support |
+| `dev` | Standard server tests and test tooling |
+| `test-full` | Standard tests plus CPU models, TensorFlow, molecular input, analytics and LangChain/LangGraph |
+| `all` | Declared runtime application extras, including cloud and model integrations |
+
+Select additional extras through the shared installer:
 
 ```sh
-python -m pip install .
-python -m pip install ./rcql ./rcdb
+sh install.sh --extras analytics,molecules
+sh install.sh --extras warehouse
 ```
 
-This base installation does not install SciPy. File formats beyond the native
-record format are optional through `rexgraph[io]`. Signing uses
-`rexgraph[security]`. Neither extra requires SciPy. Core `all` means `io` and
-`security`; it does not enable reference oracles.
+Live database connections also need credentials and any driver required by the
+chosen database URL. fsspec's base dependency supports local and memory object
+stores; remote providers need their corresponding cloud driver. A generic remote
+filesystem does not, by itself, establish RCDB's native atomic publication
+contract.
 
-| Profile | Purpose |
-| :-- | :-- |
-| `rexgraph[scipy]` | Explicit SciPy matrix exports and older sparse analysis APIs |
-| `rexgraph[oracles]` | The same dependency, requested for spectral and matrix reference comparisons |
-| `rexgraph-rcdb[scipy]` | Older index matrix and document search operations |
-| `rexgraph[dev]` | Test tools and SciPy for the full reference suite |
-| `rexgraph-agent` | Declares SciPy directly because its pipeline and graph views use it |
+## External tools and data
 
-An extra installs a dependency; it does not change operator dispatch or select
-a dense algorithm. Reference APIs must still be requested explicitly. A full
-Agent installation is not a SciPy free environment.
-Oracle code remains part of the Core distribution. Some reference routines
-use NumPy or Core LAPACK directly and need no SciPy extra.
+Tesseract is an executable installed through the host package manager. English
+OCR also requires `eng.traineddata`; `tesseract --list-langs` must list `eng`.
+The OCR setup command includes the English language package on Debian, Fedora
+and Arch Linux. The Python OCR extra supplies its bindings and the PDF reader.
+Local language model
+inference uses `llama-server` and a selected GGUF file. GPU execution requires
+compatible runtime libraries and accessible device nodes; installing PyTorch
+alone does not supply a driver or make a hidden device accessible.
 
-## Native and optional surfaces
+`make install-gpu` selects a CUDA wheel index from the NVIDIA driver and device
+architecture, or installs the AMD ROCm Python SDK and device packages. AMD setup
+builds the custom HIP kernels for all detected targets. The defaults use official
+[PyTorch packages](https://pytorch.org/get-started/locally/) and the
+[AMD stable package index](https://github.com/ROCm/TheRock/blob/main/RELEASES.md).
+`TORCH_INDEX_URL`, `ROCM_INDEX_URL`, `HIPCC` and `HIP_ARCH` provide explicit
+overrides. `NATIVE_HIP=disabled` omits native HIP compilation.
 
-`RexGraph.from_cells` now constructs the whole boundary tower in native sparse
-storage. `build_graded_boundaries(..., native=True)` exposes the same builder.
-The default of that lower level builder remains its existing SciPy CSR output
-contract. `graded_boundaries()` and `as_scipy()` are explicit compatibility
-exports and require `rexgraph[scipy]`.
+Vulkan uses the optional `vulkan` Python bindings and the host Vulkan loader and
+driver. The package includes the compiled sparse shader and its GLSL source, so
+users do not need a shader compiler. Float64 shader support is required. The
+Vulkan graph path uses GPU sparse products with CPU vector updates. PyTorch
+training requires a CUDA or ROCm build for GPU execution. `make verify-gpu GPU_BACKEND=vulkan`
+executes products, propagation and a solver residual check on the Vulkan device.
 
-Native boundary actions, channels, exact ranks, homology, weighted Hodge and
-Green actions are covered by `scripts/smoke_no_scipy.py`. RCQL execution and
-RCDB record reads, edits, commits and native state serialization do not need
-those compatibility exports. Importing the IO compatibility module no longer
-loads SciPy just because it is installed. The compiled overlap module imports
-its optional matrix dependency only inside the functions that use it; an
-unused SciPy import in the compiled graded channel module was removed.
+The separate OCR setup command accepts `TORCH_INDEX_URL` when selecting its
+inference dependencies. Those dependencies must match the inference server.
 
-SciPy remains used in older field and Dirac propagators, scale propagation,
-older partition analysis, Fiedler and some
-harmonic analysis, explicit sparse basis outputs and matrix exports. RCDB
-index matrix operators and Agent analysis also use it. The scalar accession
-reading at one step and its exact counterpart use Core integer incidence
-and rational accumulation without SciPy. These are real runtime APIs,
-not all dense oracles. They are retained with explicit dependency profiles,
-not removed or renamed as reference code.
+ROCm inference setup accepts `VLLM_WHEEL_URL` for a selected vLLM wheel. Generic
+vLLM installation can resolve a CUDA build on an incompatible Python or ROCm
+combination. Select a wheel or use an existing platform installation according
+to the [vLLM installation documentation](https://docs.vllm.ai/en/latest/getting_started/installation/gpu/).
 
-The structural partition builder and its state serialization use native sparse
-storage. RCQL `FACES`, `RESTRICT` and `PARTITION` use that builder without SciPy.
-They do not call the older partition analysis APIs.
+WordNet, Roget and Wiktionary are optional lexical resources. Configure their
+root with `REXGRAPH_LEXICAL_DIR` before starting Agent, or provide individual
+files through `REXGRAPH_WORDNET`, `REXGRAPH_ROGET` and `REXGRAPH_WIKTIONARY`.
+The default user data directory is `~/.local/share/rexgraph/lexical` and respects
+`XDG_DATA_HOME`. The previous checkout location is used when it exists and no
+new location was selected. Installation does not download or convert these data
+sources.
 
-## Verification
+`make doctor` reports the installed optional packages, external executables and
+configured resource paths. `make verify` checks the compiled library and packaged
+applications. Use `make doctor ARGS=--json` for a machine readable inventory.
 
-The native gate has two modes. Its default blocks every SciPy import, including
-the expected failure of an explicit matrix export. `--require-absent` also
-checks that no SciPy distribution is installed. Run from a neutral directory
-against installed wheels:
+## Test coverage and skipped cases
+
+The standard development profile exercises the base mathematical, storage,
+query and application contracts. Tests for optional model and molecular features
+are collected when their dependencies are installed. Use the full development
+profile to supply those Python dependencies:
 
 ```sh
-python -I /path/to/rexgraph/scripts/smoke_no_scipy.py --platform --operators --require-absent
-python -m pip check
+make install-dev-full
+make test TEST_ARGS='-rs'
 ```
 
-The platform workflow installs Core, RCQL and RCDB in a separate environment
-without Agent or the oracle extras. It runs this gate and the RCQL and RCDB
-lifecycle experiment there. A separate full environment includes the optional
-analysis dependency for the complete reference suites.
+TensorFlow comparisons run in separate CPU processes to keep TensorFlow and
+PyTorch runtime initialization separate from the other tests.
 
+Runtime thread controls preserve the original width of each loaded BLAS
+library. Overlapping calls use the smallest active limit. OpenBLAS 0.3.28
+with pthreads is restricted to one thread during these calls because resizing
+that runtime can crash parallel triangular solves. Other BLAS libraries retain
+their selected widths. [OpenBLAS 0.3.29](https://github.com/OpenMathLib/OpenBLAS/releases/tag/v0.3.29)
+includes a fix for a null pointer failure in threaded builds.
+
+GPU, multiple GPU and native HIP tests still depend on actual hardware and a
+compatible compiled runtime. Regression tests generate their graph, document
+and lexical inputs in temporary storage and isolate user configuration, caches,
+models and sessions. Dictionaries and model downloads are not required for the
+suite. Tests for optional file formats skip at the format boundary when the
+corresponding extra is absent. Use the reported test name and skip reason to
+identify a missing device or Python dependency.
+
+For a Core installation that must exclude SciPy, the dedicated smoke test checks
+native operations and deliberate refusal of compatibility exports:
+
+```sh
+.venv/bin/python -I scripts/smoke_no_scipy.py --require-absent
+```

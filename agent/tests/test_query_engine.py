@@ -15,6 +15,102 @@ DOC = ("Cells signal through receptors. Receptors bind ligands and activate "
        "that fold into structures during development in tissues and organs.")
 
 
+@pytest.fixture
+def structural_cache(tmp_path, monkeypatch):
+    from agent import answerers
+    monkeypatch.setenv("REXGRAPH_CACHE_DIR", str(tmp_path))
+    monkeypatch.delenv("REXGRAPH_NO_CACHE", raising=False)
+    monkeypatch.setattr(chat_model, "is_available", lambda: False)
+    monkeypatch.setattr(answerers, "exact_answers", lambda query: [])
+    monkeypatch.setattr(qe, "synthesize", lambda query, summary, sections, relation:
+                        (summary or "structural answer", False, {}))
+    return _doc_rex()
+
+
+def test_chat_cache_separates_summary_and_sentence_settings(structural_cache):
+    rex = structural_cache
+    query = "what regulates genes?"
+    first = qe.answer_query(rex, query, doc_summary="first", section_sentences=1)
+    repeated = qe.answer_query(rex, query, doc_summary="first", section_sentences=1)
+    changed = qe.answer_query(rex, query, doc_summary="second", section_sentences=1)
+    resized = qe.answer_query(rex, query, doc_summary="first", section_sentences=2)
+    assert not first["cached"] and repeated["cached"]
+    assert changed["answer"] == "second" and not changed["cached"]
+    assert not resized["cached"]
+
+
+def test_chat_cache_invalidates_document_state_changes(structural_cache):
+    rex = structural_cache
+    query = "what regulates genes?"
+    assert not qe.answer_query(rex, query)["cached"]
+    assert qe.answer_query(rex, query)["cached"]
+    rex.attach_metadata(1, 0, "revision", "changed")
+    assert not qe.answer_query(rex, query)["cached"]
+
+
+def test_chat_cache_does_not_hide_a_configured_model(structural_cache, monkeypatch):
+    rex = structural_cache
+    query = "what regulates genes?"
+    assert not qe.answer_query(rex, query)["cached"]
+    monkeypatch.setattr(chat_model, "is_available", lambda: True)
+    monkeypatch.setattr(qe, "synthesize", lambda *args: ("model answer", True, {}))
+    result = qe.answer_query(rex, query)
+    assert result["answer"] == "model answer" and result["model_used"]
+    assert not result["cached"]
+
+
+def test_chat_cache_does_not_hide_new_lexical_answers(structural_cache, monkeypatch):
+    from agent import answerers
+    rex = structural_cache
+    query = "what regulates genes?"
+    assert not qe.answer_query(rex, query)["cached"]
+    monkeypatch.setattr(answerers, "exact_answers", lambda query: [
+        {"text": "lexical answer", "source": "synthetic", "kind": "definition", "subject": "genes"}])
+    result = qe.answer_query(rex, query)
+    assert result["answer"].startswith("lexical answer") and not result["cached"]
+
+
+@pytest.mark.parametrize("source", ["corpus", "store"])
+def test_chat_cache_bypasses_mutable_sources(structural_cache, monkeypatch, source):
+    calls = []
+    monkeypatch.setattr(qe, "retrieve_sections", lambda *args, **kwargs:
+                        (calls.append(kwargs[source]) or [], {"mode": source}))
+    marker = object()
+    first = qe.answer_query(structural_cache, "query", **{source: marker})
+    second = qe.answer_query(structural_cache, "query", **{source: marker})
+    assert not first["cached"] and not second["cached"]
+    assert calls == [marker, marker]
+
+
+def test_document_changed_during_retrieval_is_not_cached(structural_cache, monkeypatch, tmp_path):
+    rex = structural_cache
+    original = qe.retrieve_sections
+
+    def retrieve(*args, **kwargs):
+        result = original(*args, **kwargs)
+        rex.attach_metadata(1, 0, "revision", "changed during retrieval")
+        return result
+
+    monkeypatch.setattr(qe, "retrieve_sections", retrieve)
+    assert not qe.answer_query(rex, "what regulates genes?")["cached"]
+    assert not list(tmp_path.glob("*.payload.json"))
+
+
+def test_chat_source_text_is_hashed_as_text_not_as_a_file(tmp_path, monkeypatch):
+    source = tmp_path / "document.txt"
+    source.write_text("first")
+    monkeypatch.setenv("REXGRAPH_CACHE_DIR", str(tmp_path / "cache"))
+    meta = {"source_text": str(source)}
+    before = qe._cache_key(meta, "query", 1)
+    source.write_text("changed")
+    assert before == qe._cache_key(meta, "query", 1)
+
+
+def test_non_finite_cache_parameters_do_not_become_finite_keys():
+    assert qe._cache_key({"source_text": "text", "value": float("inf")}, "query", 1) is None
+    assert qe._cache_key({"source_text": "text", "value": 0.0}, "query", 1) is not None
+
+
 def _doc_rex(text=DOC):
     ec = TextAdapter().build(text, min_count=1, max_vocab=100)
     rex = build_rex_from_edges(ec)
@@ -213,15 +309,7 @@ def _mini_corpus():
 
 
 def test_scores_are_a_coherent_mass_not_a_mixture_of_incommensurable_terms():
-    """The original defect was mixing a Jaccard and a character cosine (both in [0,1])
-    with the raw quadratic form psi^T RL^+ psi, unbounded and reaching 729 on a real
-    corpus, so the bounded terms contributed 0.14% and hybrid ranking was the spectral
-    term alone.
-
-    The score is now ONE field summed over one seed (kappa over the vertices the
-    query matched) so nothing is mixed and there is no unit range to enforce: each
-    kappa is in [0,1], so the score lies in [0, n_shared] and grows with how much of
-    the query the document actually carries."""
+    """Each score sums kappa over matched vertices and lies in [0, n_shared]."""
     c = _mini_corpus()
     for mode in ("chi", "spectral", "hybrid"):
         qr = c.query("hodge decomposition harmonic projection", top_k=3, mode=mode)

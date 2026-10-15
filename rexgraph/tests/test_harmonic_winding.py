@@ -40,7 +40,7 @@ ZOO = {
 
 @pytest.mark.parametrize("name", list(ZOO))
 def test_a_gradient_signal_has_no_winding(name):
-    """PROVED: <B1^T phi, z> = <phi, B1 z> = 0 for any cycle z. A potential is
+    """<B1^T phi, z> = <phi, B1 z> = 0 for any cycle z. A potential is
     path independent, so it winds around nothing."""
     rex = ZOO[name]
     H = harmonic_basis(rex)

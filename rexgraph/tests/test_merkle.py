@@ -1,6 +1,6 @@
 """The hybrid tree: semantic levels outside, binary trees inside.
 
-The claims under test are that the path names real layers, that the proof costs log of
+The claims under test are that the path names real layers, that the verification path costs log of
 each fanout rather than all of it, that the interior nodes ARE the layer digests, and
 that the whole thing rests on the base layer being a partition.
 """
@@ -40,7 +40,7 @@ def test_a_named_base_is_required_when_several_layers_own_cells(doc):
     assert layer_chain(sectionings_of(doc), "speaker") == ["speaker"]
 
 
-def test_every_proof_verifies_against_the_root(doc):
+def test_every_inclusion_path_verifies_against_the_root(doc):
     m = build_merkle(doc)
     for i in range(len(m.leaves)):
         assert verify_proof(m.leaves[i], m.proof(i), m.root)
@@ -77,7 +77,7 @@ def test_the_interior_nodes_are_the_layer_digests(doc):
     assert m.layer_digest("paragraph", 1) == m.roots["paragraph"][1]
 
 
-def test_the_proof_is_logarithmic_in_each_fanout_not_linear(doc):
+def test_inclusion_path_length_is_logarithmic_in_each_fanout(doc):
     """A wide sibling set must cost log2 of it. Flat siblings would cost all 16."""
     r = RexGraph(sources=list(range(32)), targets=[(i + 1) % 32 for i in range(32)])
     add_sectioning(r, "sentence", {f"s{i}": [i] for i in range(32)})
@@ -126,10 +126,12 @@ def test_no_digest_is_stored_because_every_one_of_them_is_derived(doc):
     assert set(semantic_header(st)["merkle"]) == {"chain", "root", "n_leaves"}
 
 
-def test_a_proof_still_travels_carrying_its_own_leaf(doc):
-    """A verifier needs the leaf, the path and the root, which is what a Merkle proof
-    has always been. What changed is that the leaf is derived from the bundle rather
-    than read out of it; verification does not involve the source text either way."""
+def test_inclusion_verification_requires_the_matching_leaf(doc):
+    """Check inclusion using a leaf digest, sibling path and stored root.
+
+    The leaf is derived from the bundle's structural state. Source text
+    is not required for this check.
+    """
     m = build_merkle(doc)
     root = bytes.fromhex(semantic_header(to_state(doc))["merkle"]["root"])
     assert verify_proof(m.leaves[2], m.proof(2), root)

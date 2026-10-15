@@ -11,6 +11,7 @@ from rexgraph.io.safetensors_bridge import state_from_safetensors_bytes, rex_to_
 
 @pytest.mark.parametrize("temporal", [False, True])
 def test_native_state_bytes_roundtrip_uses_no_file_publication(temporal, monkeypatch):
+    pytest.importorskip("safetensors", reason="this format requires rexgraph[io]")
     from rexgraph.io.safetensors_bridge import state_to_safetensors_bytes
     from rexgraph.state import to_state
     from rexgraph.temporal_state import to_temporal_state
@@ -26,6 +27,7 @@ def test_native_state_bytes_roundtrip_uses_no_file_publication(temporal, monkeyp
 
 
 def test_native_state_bytes_refuse_a_tampered_semantic_state():
+    pytest.importorskip("safetensors", reason="this format requires rexgraph[io]")
     from rexgraph.io.safetensors_bridge import state_to_safetensors_bytes
     from rexgraph.state import to_state, RexState
     state = to_state(RexGraph.from_graph([0], [1]))

@@ -52,6 +52,7 @@ from functools import wraps
 from inspect import signature
 from collections.abc import Iterator
 from typing import Any
+from threading import RLock
 
 import numpy as np
 from numpy.typing import NDArray
@@ -85,7 +86,7 @@ __all__ = [
     "reconstruct_rex_sql",
 ]
 
-# Edge type names matching the EdgeType enum in types.py
+# Edge type names match the EdgeType enum in rextypes.py.
 _EDGE_TYPE_NAMES = {0: "standard", 1: "self_loop", 2: "branching", 3: "witness"}
 
 
@@ -110,6 +111,7 @@ def _sa():
 
 
 _ENGINE_CACHE: dict[str, Any] = {}
+_ENGINE_LOCK = RLock()
 
 
 def get_engine(conn_str: str):
@@ -128,38 +130,37 @@ def get_engine(conn_str: str):
 
     low = conn_str.lower()
     if low.startswith("sqlite") and (":memory:" in low or "file::memory:" in low):
-        # `uri=true` MUST live in the URL query string: SQLAlchemy's pysqlite
+        # `uri=true` must live in the URL query string: SQLAlchemy's pysqlite
         # dialect only builds a driver level URI connection when it sees it
         # there. Passing uri via connect_args instead makes the dialect strip
         # `?cache=shared` and hand the bare string "file::memory:" to
         # sqlite3.connect() as a plain filename -> it silently creates an
         # on disk file literally named "file::memory:" instead of an in memory DB.
         mapped = "sqlite+pysqlite:///file::memory:?cache=shared&uri=true"
-        if mapped not in _ENGINE_CACHE:
-            _ENGINE_CACHE[mapped] = create_engine(
-                mapped,
-                connect_args={"check_same_thread": False},
-                poolclass=StaticPool,
-            )
-        return _ENGINE_CACHE[mapped]
+        with _ENGINE_LOCK:
+            if mapped not in _ENGINE_CACHE:
+                _ENGINE_CACHE[mapped] = create_engine(
+                    mapped,
+                    connect_args={"check_same_thread": False},
+                    poolclass=StaticPool,
+                )
+            return _ENGINE_CACHE[mapped]
 
     # Cache one engine and connection pool per connection string.
-    if conn_str not in _ENGINE_CACHE:
-        _ENGINE_CACHE[conn_str] = create_engine(conn_str)
-    return _ENGINE_CACHE[conn_str]
+    with _ENGINE_LOCK:
+        if conn_str not in _ENGINE_CACHE:
+            _ENGINE_CACHE[conn_str] = create_engine(conn_str)
+        return _ENGINE_CACHE[conn_str]
 
 
 def dispose_engines() -> None:
-    """Dispose every cached engine and forget them.
-
-    The cache is process wide and deliberately long lived, so this exists for the cases
-    that need the pools actually released: a test that has finished with a database, or
-    a process shutting a workspace down.
-    """
+    """Clear the cache and release its connection pools during caller coordinated shutdown."""
     import contextlib
 
-    while _ENGINE_CACHE:
-        _, engine = _ENGINE_CACHE.popitem()
+    with _ENGINE_LOCK:
+        engines = tuple(_ENGINE_CACHE.values())
+        _ENGINE_CACHE.clear()
+    for engine in engines:
         with contextlib.suppress(Exception):    # a broken engine must not block the rest
             engine.dispose()
 
@@ -1139,36 +1140,39 @@ def read_sql_batches(
     import sqlalchemy as sa
     engine = _ensure_engine(conn)
 
-    is_query = " " in table_or_query.strip()
-
     if type(chunksize) is not int or chunksize <= 0:
         raise ValueError("SQL batch size must be a positive integer")
+    if type(table_or_query) is not str or not table_or_query.strip():
+        raise ValueError("SQL stream requires a table name or query")
     with _connection(engine) as connection:
+        import re
+        table = table_or_query.strip()
+        is_query = not _table_exists(connection, table) and (
+            any(c.isspace() for c in table)
+            or re.match(r"(?i)^(SELECT|WITH|VALUES|PRAGMA|EXPLAIN|SHOW)\b", table) is not None)
         if is_query:
             # Raw SQL escape hatch: the caller supplied a full query, not a bare
             # table name, so there is no table name here to parameterize.
-            result = connection.execute(sa.text(table_or_query))
-            keys = list(result.keys())
-            while True:
-                rows = result.fetchmany(chunksize)
-                if not rows:
-                    return
-                yield {k: np.asarray([r[j] for r in rows]) for j, k in enumerate(keys)}
+            statement = sa.text(table_or_query)
+            dtypes, declarations, exact_fields = {}, {}, set()
         else:
-            table = table_or_query.strip()
             md = sa.MetaData()
-            tbl = sa.Table(table, md, autoload_with=engine)     # reflect, no f-string
-            keys = list(tbl.c.keys())
-            from .sql_columns import decode_columns
+            tbl = sa.Table(table, md, autoload_with=connection)
+            statement = sa.select(tbl)
             meta = _read_meta(connection, table)
             dtypes = meta.get("dtypes", {})
             from .sql_columns import project_columns
             declarations = meta.get("logical_columns", {})
             exact_fields = set(project_columns([k for k, v in declarations.items() if v.get("codec") == "exact-array-v1"], declarations))
-            offset = 0
+        from .sql_columns import decode_columns
+        result = connection.execute(statement, execution_options={
+            "stream_results": True, "max_row_buffer": chunksize, "yield_per": chunksize})
+        try:
+            keys = list(result.keys())
+            if len(set(keys)) != len(keys):
+                raise ValueError("SQL stream requires distinct column names")
             while True:
-                sel = sa.select(*[tbl.c[k] for k in keys]).limit(chunksize).offset(offset)
-                rows = connection.execute(sel).fetchall()
+                rows = result.fetchmany(chunksize)
                 if not rows:
                     return
                 out = {}
@@ -1176,10 +1180,9 @@ def read_sql_batches(
                     col = [r[j] for r in rows]
                     out[k] = (np.asarray(col, dtype=object) if k in exact_fields else
                               np.asarray(col, dtype=dtypes[k]) if k in dtypes else np.asarray(col))
-                yield decode_columns(out, meta.get("logical_columns", {}))
-                if len(rows) < chunksize:
-                    return
-                offset += chunksize
+                yield decode_columns(out, declarations)
+        finally:
+            result.close()
 
 
 # RCF Character and Void SQL tables (new in v2)

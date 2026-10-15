@@ -50,6 +50,19 @@ __all__ = [
 ]
 
 
+def _member_name(name, *, filesystem=False):
+    from rexgraph.state import encode_name, RESERVED_HIERARCHY, RESERVED_PATH
+    if type(name) is not str or not name:
+        raise ValueError("storage members require nonempty logical names")
+    value = encode_name(name, RESERVED_PATH if filesystem else RESERVED_HIERARCHY)
+    return value.replace(".", "%2E") if value in {".", ".."} else value
+
+
+def _legacy_member(name):
+    return (not name.startswith(("/", "\\")) and "\\" not in name
+            and all(part not in {"", ".", ".."} for part in name.split("/")))
+
+
 # Storage adapter interface
 
 class StorageAdapter(abc.ABC):
@@ -116,14 +129,26 @@ class ZarrAdapter(StorageAdapter):
 
     def put_array(self, name: str, arr: NDArray) -> None:
         from ._compat import g_store_complex
-        g_store_complex(self._g, name, np.asarray(arr),
+        encoded = _member_name(name)
+        if encoded in self._g:
+            del self._g[encoded]
+        g_store_complex(self._g, encoded, np.asarray(arr),
                         compressor=self._compressor, chunks=self._chunks)
 
     def get_array(self, name: str) -> NDArray | None:
         from ._compat import g_load_complex
+        encoded = _member_name(name)
+        if (encoded in self._g and not hasattr(self._g[encoded], "shape")
+                and not self._g[encoded].attrs.get("is_complex", False)):
+            return None
         try:
-            return g_load_complex(self._g, name)
+            return g_load_complex(self._g, encoded)
         except KeyError:
+            if encoded != name and _legacy_member(name):
+                try:
+                    return g_load_complex(self._g, name)
+                except KeyError:
+                    pass
             return None
 
     def put_scalar(self, name: str, value: Any) -> None:
@@ -149,14 +174,20 @@ class ZarrAdapter(StorageAdapter):
         self._g.attrs[name] = s
 
     def get_string(self, name: str, default: str = "") -> str:
-        val = self._g.attrs.get(name, default)
+        if name not in self._g.attrs:
+            return default
+        val = self._g.attrs[name]
         return str(as_str(val))
 
     def has(self, name: str) -> bool:
-        return name in self._g or name in self._g.attrs
+        return (_member_name(name) in self._g or name in self._g.attrs
+                or _legacy_member(name) and name in self._g)
 
     def subgroup(self, name: str) -> ZarrAdapter:
-        sub = self._g[name] if name in self._g else self._g.create_group(name)
+        encoded = _member_name(name)
+        if encoded not in self._g and _legacy_member(name) and name in self._g:
+            encoded = name
+        sub = self._g[encoded] if encoded in self._g else self._g.create_group(encoded)
         return ZarrAdapter(sub, compressor=self._compressor,
                            chunks=self._chunks)
 
@@ -173,14 +204,26 @@ class HDF5Adapter(StorageAdapter):
 
     def put_array(self, name: str, arr: NDArray) -> None:
         from ._compat import h5_store_complex
-        h5_store_complex(self._g, name, np.asarray(arr),
+        encoded = _member_name(name)
+        if encoded in self._g:
+            del self._g[encoded]
+        h5_store_complex(self._g, encoded, np.asarray(arr),
                          compression=self._compression, chunks=self._chunks)
 
     def get_array(self, name: str) -> NDArray | None:
         from ._compat import h5_load_complex
+        encoded = _member_name(name)
+        if (encoded in self._g and not hasattr(self._g[encoded], "shape")
+                and not self._g[encoded].attrs.get("is_complex", False)):
+            return None
         try:
-            return h5_load_complex(self._g, name)
+            return h5_load_complex(self._g, encoded)
         except KeyError:
+            if encoded != name and _legacy_member(name):
+                try:
+                    return h5_load_complex(self._g, name)
+                except KeyError:
+                    pass
             return None
 
     def put_scalar(self, name: str, value: Any) -> None:
@@ -206,14 +249,20 @@ class HDF5Adapter(StorageAdapter):
         self._g.attrs[name] = s
 
     def get_string(self, name: str, default: str = "") -> str:
-        val = self._g.attrs.get(name, default)
+        if name not in self._g.attrs:
+            return default
+        val = self._g.attrs[name]
         return str(as_str(val))
 
     def has(self, name: str) -> bool:
-        return name in self._g or name in self._g.attrs
+        return (_member_name(name) in self._g or name in self._g.attrs
+                or _legacy_member(name) and name in self._g)
 
     def subgroup(self, name: str) -> HDF5Adapter:
-        sub = self._g[name] if name in self._g else self._g.create_group(name)
+        encoded = _member_name(name)
+        if encoded not in self._g and _legacy_member(name) and name in self._g:
+            encoded = name
+        sub = self._g[encoded] if encoded in self._g else self._g.create_group(encoded)
         return HDF5Adapter(sub, compression=self._compression,
                            chunks=self._chunks)
 
@@ -246,10 +295,13 @@ class NpyAdapter(StorageAdapter):
 
     def put_array(self, name: str, arr: NDArray) -> None:
         arr = np.asarray(arr)
-        np.save(self._dir / f"{name}.npy", arr)
+        np.save(self._dir / f"{_member_name(name, filesystem=True)}.npy", arr)
 
     def get_array(self, name: str) -> NDArray | None:
-        path = self._dir / f"{name}.npy"
+        path = self._dir / f"{_member_name(name, filesystem=True)}.npy"
+        legacy = self._dir / f"{name}.npy"
+        if not path.exists() and _legacy_member(name) and legacy.resolve().is_relative_to(self._dir.resolve()):
+            path = legacy
         if path.exists():
             return np.load(path)
         return None
@@ -276,15 +328,25 @@ class NpyAdapter(StorageAdapter):
         self._save_meta()
 
     def get_string(self, name: str, default: str = "") -> str:
-        return str(self._load_meta().get(name, default))
+        meta = self._load_meta()
+        return str(meta[name]) if name in meta else default
 
     def has(self, name: str) -> bool:
-        if (self._dir / f"{name}.npy").exists():
+        encoded = _member_name(name, filesystem=True)
+        if (self._dir / f"{encoded}.npy").exists() or (self._dir / encoded).is_dir():
             return True
+        legacy = self._dir / name
+        if _legacy_member(name) and legacy.resolve().is_relative_to(self._dir.resolve()):
+            if legacy.is_dir() or legacy.with_name(legacy.name+".npy").is_file():
+                return True
         return name in self._load_meta()
 
     def subgroup(self, name: str) -> NpyAdapter:
-        return NpyAdapter(self._dir / name)
+        path = self._dir / _member_name(name, filesystem=True)
+        legacy = self._dir / name
+        if not path.exists() and _legacy_member(name) and legacy.is_dir() and legacy.resolve().is_relative_to(self._dir.resolve()):
+            path = legacy
+        return NpyAdapter(path)
 
 
 # Field classification
@@ -343,10 +405,12 @@ def write_namedtuple(
 
     fields = obj._fields if hasattr(obj, "_fields") else []
     none_fields: list[str] = []
+    field_kinds = {}
 
     for field_name in fields:
         value = getattr(obj, field_name)
         kind = _classify_field(value)
+        field_kinds[field_name] = kind
 
         if kind == "none":
             none_fields.append(field_name)
@@ -364,8 +428,8 @@ def write_namedtuple(
         elif kind == "tuple":
             sub.put_json(field_name, list(value))
 
-    if none_fields:
-        sub.put_json("_none_fields", none_fields)
+    sub.put_json("_none_fields", none_fields)
+    sub.put_json("_field_kinds", field_kinds)
 
 
 def read_namedtuple(
@@ -382,6 +446,8 @@ def read_namedtuple(
     fields are set to None. Scalar and string fields use their
     stored values or defaults.
     """
+    if not adapter.has(name):
+        return None
     sub = adapter.subgroup(name)
 
     if not sub.has("_type_name"):
@@ -399,8 +465,15 @@ def read_namedtuple(
 
     fields = type_class._fields
     values = {}
+    retained = (_read_as_dict(sub, none_fields)
+                if sub.has("_field_kinds") else None)
 
     for field_name in fields:
+        if retained is not None:
+            values[field_name] = retained.get(field_name)
+            continue
+        if not adapter.has(name):
+            raise ValueError(f"declared result field {name!r} is missing")
         if field_name in none_fields:
             values[field_name] = None
             continue
@@ -430,8 +503,7 @@ def read_namedtuple(
             continue
 
         # Try dict subgroup
-        dict_sub = sub.subgroup(field_name)
-        if dict_sub.has("_is_dict"):
+        if sub.has(field_name) and sub.subgroup(field_name).has("_is_dict"):
             values[field_name] = _read_dict_field(sub, field_name)
             continue
 
@@ -462,38 +534,45 @@ def _read_as_dict(
     none_fields: set[str],
 ) -> dict:
     """Read all fields from a subgroup into a plain dict."""
-    # This is a fallback when we can't resolve the type
-    return {}
+    kinds = adapter.get_json("_field_kinds")
+    allowed = {"array", "scalar", "string", "dict", "tuple", "list_of_dict", "none"}
+    if not isinstance(kinds, dict) or any(type(k) is not str or type(v) is not str or v not in allowed for k, v in kinds.items()):
+        raise ValueError("result type is unavailable and its field declaration is missing or invalid")
+    result = {}
+    for name, kind in kinds.items():
+        if kind == "none":
+            result[name] = None
+            continue
+        if kind == "dict":
+            value = _read_dict_field(adapter, name)
+        elif kind == "array":
+            value = adapter.get_array(name)
+        elif kind == "scalar":
+            value = adapter.get_scalar(name)
+        elif kind == "string":
+            value = adapter.get_string(name, None)
+        else:
+            value = adapter.get_json(name)
+        if value is None:
+            raise ValueError(f"declared result field {name!r} is missing")
+        result[name] = value
+    return result
 
 
 # Dict field helpers
 
 def _write_dict_field(adapter: StorageAdapter, name: str, d: dict) -> None:
     """Write a dict field, storing arrays as datasets and rest as JSON."""
+    _write_result_dict(adapter, name, d, 0)
     sub = adapter.subgroup(name)
     sub.put_scalar("_is_dict", True)
-
-    arrays: dict[str, NDArray] = {}
-    scalars: dict = {}
-
-    for k, v in d.items():
-        if isinstance(v, np.ndarray):
-            arrays[k] = v
-        else:
-            scalars[k] = to_native(v) if isinstance(v, (np.integer, np.floating, np.bool_)) else v
-
-    for k, arr in arrays.items():
-        sub.put_array(k, arr)
-
-    if scalars:
-        sub.put_json("_scalars", scalars)
-
-    sub.put_json("_array_keys", list(arrays.keys()))
 
 
 def _read_dict_field(adapter: StorageAdapter, name: str) -> dict:
     """Read a dict field back from storage."""
     sub = adapter.subgroup(name)
+    if sub.has("_is_result_dict"):
+        return read_result_dict(adapter, name)
     result: dict = {}
 
     array_keys = sub.get_json("_array_keys", [])
@@ -521,10 +600,19 @@ def write_result_dict(
     Handles mixed array/scalar/dict values. Each array becomes a
     dataset; scalars and non array values are JSON encoded.
     """
+    _write_result_dict(adapter, name, data, 0)
+
+
+def _write_result_dict(adapter, name, data, depth):
+    if depth > 64:
+        raise ValueError("result dictionary nesting is too deep or cyclic")
+    if not isinstance(data, dict) or any(type(key) is not str or not key for key in data):
+        raise ValueError("result dictionaries require nonempty string keys")
     sub = adapter.subgroup(name)
     sub.put_scalar("_is_result_dict", True)
 
     array_keys: list[str] = []
+    dict_keys = []
     json_data: dict = {}
 
     for k, v in data.items():
@@ -532,19 +620,15 @@ def write_result_dict(
             sub.put_array(k, v)
             array_keys.append(k)
         elif isinstance(v, dict):
-            # Nested dict: check if it contains arrays
-            has_arrays = any(isinstance(vv, np.ndarray) for vv in v.values())
-            if has_arrays:
-                _write_dict_field(sub, k, v)
-            else:
-                json_data[k] = v
+            _write_result_dict(sub, k, v, depth+1)
+            dict_keys.append(k)
         else:
             json_data[k] = to_native(v) if isinstance(
                 v, (np.integer, np.floating, np.bool_)) else v
 
     sub.put_json("_array_keys", array_keys)
-    if json_data:
-        sub.put_json("_json_data", json_data)
+    sub.put_json("_dict_keys", dict_keys)
+    sub.put_json("_json_data", json_data)
 
 
 def read_result_dict(
@@ -552,18 +636,30 @@ def read_result_dict(
     name: str,
 ) -> dict:
     """Read a result dict from storage."""
+    return _read_result_dict(adapter, name, 0)
+
+
+def _read_result_dict(adapter, name, depth):
+    if depth > 64:
+        raise ValueError("result dictionary nesting is too deep or cyclic")
     sub = adapter.subgroup(name)
     result: dict = {}
 
     array_keys = sub.get_json("_array_keys", [])
     for k in array_keys:
         arr = sub.get_array(k)
-        if arr is not None:
-            result[k] = arr
+        if arr is None:
+            raise ValueError(f"declared result array {k!r} is missing")
+        result[k] = arr
 
     json_data = sub.get_json("_json_data", {})
     if json_data:
         result.update(json_data)
+
+    for key in sub.get_json("_dict_keys", []):
+        if not sub.has(key):
+            raise ValueError(f"declared result dictionary {key!r} is missing")
+        result[key] = _read_result_dict(sub, key, depth+1)
 
     return result
 

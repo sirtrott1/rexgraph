@@ -98,9 +98,11 @@ def test_an_exact_composite_binary_field_recovers_exactly():
 
 
 def test_the_tower_carries_what_one_level_leaves():
-    """Each level reduces the residual of the one above, so mass falls monotonically
-    and `bits_per_entry` is two per level. Measured on real weights: one level retains
-    about 0.79 of a 256 block's mass, two about 0.95, three about 0.98."""
+    """Check residual mass and storage width across generated ternary levels.
+
+    Each level reduces the preceding residual, and each stored level uses
+    two bits per entry. Reconstruction must match the final residual mass.
+    """
     a = np.random.default_rng(6).standard_normal((32, 256))
     t = residual_tower(a, max_levels=4)
     masses = t["masses"]

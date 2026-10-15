@@ -303,7 +303,7 @@ def detect_compute_backends() -> list[dict[str, Any]]:
     """Ordered list of compute backends available on this host, with capability info.
 
     Every entry has at least: name, kind ('cpu'|'gpu'), available (True), integrated (bool),
-    vendor, via (how it was detected), devices (count), detail (str). CPU is ALWAYS present and
+    vendor, via (how it was detected), devices (count), detail (str). CPU is always present and
     always last. GPU entries are ordered by BACKEND_PRIORITY. Nothing here raises.
     """
     backends: list[dict[str, Any]] = []
@@ -320,7 +320,7 @@ def detect_compute_backends() -> list[dict[str, Any]]:
                 if n:
                     cuda_devs, via = n, "nvidia-smi"
         if cuda_devs == 0 and (_has_module("cupy") or _has_module("torch")):
-            # library present but no device enumerated: report as a *capable* path, unproven device
+            # library present but no device enumerated: report as a *capable* path, unverified device
             via = via or ("cupy" if _has_module("cupy") else "torch")
         if cuda_devs > 0:
             backends.append({"name": "cuda", "kind": "gpu", "available": True, "integrated": False,

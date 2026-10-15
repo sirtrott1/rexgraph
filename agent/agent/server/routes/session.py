@@ -11,11 +11,7 @@ router = APIRouter()
 
 @router.get("/sessions")
 async def list_sessions(limit: int = 200):
-    """Saved sessions, NEWEST FIRST, bounded.
-
-    Unbounded and id sorted before, which put a freshly recorded session at index 1177 of
-    5278 on a real install: in the list, and unfindable in a control.
-    """
+    """List saved sessions newest first, applying limit when it is positive."""
     from agent.server.app import get_store
     return get_store().list_all(limit=(None if limit <= 0 else int(limit)))
 

@@ -1,12 +1,8 @@
-"""The cheap character reads diagonals, so it should not assemble the operators.
+"""Check channel diagonals without assembling full channel operators.
 
-build_sparse_character_cheap says it works "from DIAGONALS only" and then built the
-four edge x edge channel operators to read their diagonals off. That assembly costs
-sum_v deg(v)^2 nonzeros, which one hub detonates: on a GO shaped complex (max degree
-24256) it was 112 s for four arrays of length nE.
-
-The closed forms below are exact for a signed pairwise unweighted complex and are
-gated to exactly that case; anything with arity or weighting still assembles.
+The direct formulas apply to signed, pairwise, unweighted complexes. Tests compare
+them with assembled operators and verify that weighted or higher arity inputs
+retain the general construction path.
 """
 from __future__ import annotations
 

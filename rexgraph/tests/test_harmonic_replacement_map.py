@@ -1,26 +1,8 @@
-"""What replaced the dense harmonic module, function by function.
+"""Compare sparse harmonic frames with the compiled dense reference kernel.
 
-`rexgraph/core/_harmonic.pyx` builds a dense nE x nE L1 and eigendecomposes it
-against a hardcoded cutoff. Every part of it that had a live purpose has an
-eigen free replacement, and this file is the mapping, executable so it cannot
-drift:
-
-    _harmonic.harmonic_basis        harmonic_sparse.harmonic_basis
-    _harmonic.harmonic_projectors   harmonic_sparse.harmonic_projection
-    _harmonic.harmonic_encode       hodge_coords.from_harmonic_coords
-    _harmonic.harmonic_decode       hodge_coords.harmonic_coords
-    _harmonic.harmonic_leakage      RexGraph.hodge / hodge_full
-    _harmonic.harmonic_product_table hodge_coords.harmonic_closure
-
-The dense module survives as the ORACLE these are checked against, which is what
-`test_harmonic_sparse.py` uses it for, and as the dependency of the unreferenced
-`rexgraph/harmonic.py`.
-
-Two of its functions have no replacement and want none. The prime coupling
-experiments have no equivalent anywhere. And `harmonic_channel_character`
-averages over the chosen basis vectors and then thresholds `np.std(chi_H) < 0.02`,
-so it is basis dependent and decides from a statistic against a magic number,
-which is two standing directives at once.
+The tests compare subspaces, projections, coordinate reconstruction,
+component energies and harmonic closure. Production code uses sparse
+frames; dense kernel calls provide an independent reference here.
 """
 
 import itertools
@@ -124,7 +106,7 @@ def test_the_product_table_is_harmonic_closure():
     assert (C >= -1e-12).all() and (C <= 1.0 + 1e-9).all()
 
 
-def test_only_the_dead_module_still_imports_the_dense_one():
+def test_production_python_uses_the_sparse_harmonic_implementation():
     """If this fails, something new took a dependency on the eigen path."""
     import pathlib
 
@@ -140,7 +122,7 @@ def test_only_the_dead_module_still_imports_the_dense_one():
             continue
         for p in root.rglob("*.py"):
             scanned += 1
-            if "tests" in p.parts or p.name == "harmonic.py":
+            if "tests" in p.parts:
                 continue
             txt = p.read_text(errors="ignore")
             if "core._harmonic import" in txt or "from .core._harmonic" in txt:

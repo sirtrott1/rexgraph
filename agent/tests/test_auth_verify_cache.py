@@ -1,15 +1,7 @@
-"""Authenticating a request should not cost more than answering it.
+"""Check bearer verification reuse, miss caching and token revocation.
 
-bcrypt is deliberately slow, and token verification scanned EVERY stored hash on EVERY
-request. At cost 12 with five tokens on file, and the matching one last, a request that
-returned 0.1 KB took 0.86s and the app took about three seconds a page. The work was the
-authentication, not the data, and it grew with the number of tokens.
-
-Verify once and remember the answer for the process. The key is a SHA-256 of the presented
-token rather than the token itself, so the cache never holds the secret. A MISS is cached
-too, or an unauthenticated caller could still make the server do five bcrypts per request
-by repeating one bad token. The whole cache is cleared whenever the token set moves, so a
-revoked token stops working on the next request rather than at restart.
+Cache keys are digests of presented tokens. Verification results remain reusable
+until a token change clears the cache, including previously unsuccessful attempts.
 """
 from __future__ import annotations
 

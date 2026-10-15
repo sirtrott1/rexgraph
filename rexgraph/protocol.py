@@ -1,39 +1,16 @@
-"""
-rexgraph.protocol: the wire contract, anchored in the chain condition.
+"""Bounded transport frames for serialized relational complexes.
 
-A complex crosses a boundary as the same layered binary it is stored as, and two
-different questions get asked on the far side: are these the bytes that were sent, and
-do they describe a complex. Neither answers the other, and the second one does less
-than it looks like it does.
+A frame records payload length, wire version and a SHA-256 digest. The decoder
+checks declared limits before allocation and rejects truncated or corrupted
+payloads. Decoded boundaries are also checked against the chain condition where
+adjacent grades are present; that structural check does not authenticate bytes.
 
-    transmission  a sha256 over the payload, recorded in the header. Catches a flipped
-                  bit, a truncation, a wrong-length read. This is what actually makes
-                  a frame trustworthy against corruption.
-    structure     ``B_d B_{d+1} = 0``, exact over the integers. Catches a payload that
-                  arrived intact and still is not a complex: faces whose boundary does
-                  not close. It constrains the relationship BETWEEN grades, so on a
-                  complex with no faces there is no product to take and it constrains
-                  NOTHING. A 1-skeleton is checked by the digest alone. Treating the
-                  chain condition as an integrity check is a mistake it will not
-                  announce, because it returns valid.
-    addressing    the structural signature. Betti and the cell counts are exact and
-                  survive relabeling, so two complexes that differ in homology are
-                  provably different objects.
-    restriction   a subcomplex is itself a complex, with boundary operators that do
-                  not reference cells outside it. An operation handed one cannot
-                  reach past it, which is a property of the object rather than a
-                  check the caller must remember.
+Structural signatures summarize cell counts and homology for indexing. They do
+not uniquely identify arbitrary complexes. Restricted subcomplexes contain only
+their declared cells and boundaries.
 
-    NOT identity  a digest detects corruption, not forgery. Anyone who can rewrite the
-                  payload can recompute the digest over it, so an active attacker in
-                  the path is not covered by framing alone. `sign`/`verify_signature`
-                  add an HMAC over the frame bytes for deployments with a shared key;
-                  otherwise identity is TLS's job.
-    NOT secrecy   framing is not encryption. Confidentiality is the transport's job.
-
-Frames are self describing and bounded. Every length is read before any allocation is
-made against it, so a frame that claims more than the caller allows is refused rather
-than reserved for.
+``sign`` and ``verify_signature`` authenticate frame bytes with a shared HMAC key.
+Transport encryption, such as TLS, provides confidentiality.
 """
 
 from __future__ import annotations
@@ -359,7 +336,7 @@ def fingerprint(rex) -> dict:
     Betti and the cell counts survive relabeling, so two frames carrying the same
     complex under different vertex numbering can agree here. different
     boundaries and weights can also agree. Use io.catalog.object_digest for native
-    stored state identity; this compatibility summary is not a signature or proof
+    stored state identity; this compatibility summary is not cryptographic authentication
     that a fetched object equals the one that was sent.
     """
     out = {"nV": int(rex.nV), "nE": int(rex.nE), "nF": int(rex.nF_hodge),

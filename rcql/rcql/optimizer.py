@@ -14,21 +14,21 @@ class Rewrite:
     predicates: tuple = ()
 
 
-def optimize_expr(expr: Expr, *, plan=None, chain_proof=None) -> tuple[Expr, list[Rewrite]]:
-    """Rewrite only a validated, source bound plan with an exact chain proof.
+def optimize_expr(expr: Expr, *, plan=None, chain_check=None) -> tuple[Expr, list[Rewrite]]:
+    """Rewrite only a validated, source bound plan with exact chain validation.
 
-    An unbound syntax tree cannot prove even that an operand is a chain. Blocks
+    An unbound syntax tree does not establish that an operand is a chain. Blocks
     and unknown shapes remain actions, since ZERO currently constructs a vector.
     """
     if isinstance(expr, (Alias, Member)):
         child, rewrites = optimize_expr(expr.value, plan=None if plan is None else plan.children[0],
-                                        chain_proof=chain_proof)
+                                        chain_check=chain_check)
         return replace(expr, value=child), rewrites
     if isinstance(expr, ListExpr):
         items, rewrites = [], []
         for i, item in enumerate(expr.items):
             child, used = optimize_expr(item, plan=None if plan is None else plan.children[i],
-                                        chain_proof=chain_proof)
+                                        chain_check=chain_check)
             items.append(child)
             rewrites.extend(used)
         return replace(expr, items=tuple(items)), rewrites
@@ -38,7 +38,7 @@ def optimize_expr(expr: Expr, *, plan=None, chain_proof=None) -> tuple[Expr, lis
     rewrites = []
     for index, arg in enumerate(expr.args):
         child = plan.children[index] if plan is not None else None
-        got, used = optimize_expr(arg, plan=child, chain_proof=chain_proof)
+        got, used = optimize_expr(arg, plan=child, chain_check=chain_check)
         args.append(got)
         rewrites.extend(used)
     current = Call(expr.name, tuple(args))
@@ -57,7 +57,7 @@ def optimize_expr(expr: Expr, *, plan=None, chain_proof=None) -> tuple[Expr, lis
                     and isinstance(operand, RCType)
                     and operand.exactness in {Exactness.INTEGER, Exactness.RATIONAL}
                     and operand.shape is not None and len(operand.shape.dims) == 1
-                    and chain_proof is not None and chain_proof(plan.children[1].children[1])):
+                    and chain_check is not None and chain_check(plan.children[1].children[1])):
                 after = Call("ZERO", (Literal(int(outer_grade.value) - 1), Literal("chain")))
                 rewrites.append(Rewrite(current, after, "consecutive boundaries compose to zero", plan.predicates))
                 return after, rewrites
@@ -67,7 +67,7 @@ def optimize_expr(expr: Expr, *, plan=None, chain_proof=None) -> tuple[Expr, lis
 def optimize(query: Query, *, plan=None, parameters=None) -> tuple[Query, list[Rewrite]]:
     if plan is not None and plan.query is not query:
         raise ValueError('optimizer plan must describe the original query')
-    def chain_proof(operand):
+    def chain_check(operand):
         from rexgraph.cochain import Chain
         while isinstance(operand.expr, Reference):
             operand = operand.children[0]
@@ -80,7 +80,7 @@ def optimize(query: Query, *, plan=None, parameters=None) -> tuple[Query, list[R
 
     rewrites = []
     def optimize_fragment(expr, fragment):
-        def proven(operand, root=fragment):
+        def verified_chain(operand, root=fragment):
             pending = [root] if root is not None else []
             visited = set()
             while pending:
@@ -89,11 +89,11 @@ def optimize(query: Query, *, plan=None, parameters=None) -> tuple[Query, list[R
                     continue
                 visited.add(id(item))
                 if any(p.name == 'chain_condition' and p.status == 'verified' for p in item.predicates):
-                    return chain_proof(operand)
+                    return chain_check(operand)
                 pending.extend(item.children)
             return False
         got, used = optimize_expr(expr, plan=fragment,
-                                 chain_proof=None if plan is None else proven)
+                                 chain_check=None if plan is None else verified_chain)
         rewrites.extend(used)
         return got
     bindings = tuple(replace(item, value=optimize_fragment(

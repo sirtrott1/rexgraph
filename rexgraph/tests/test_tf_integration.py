@@ -1,21 +1,8 @@
-"""TensorFlow runs the same relational operator torch does, in its own process.
+"""Compare TensorFlow and PyTorch relational operators on identical weights.
 
-The arithmetic is a property of the complex, not of the framework, so the two
-implementations must agree on the same weights. `from_torch` moves the parameters
-across so the comparison is of the operator and not of two random initialisations.
-
-WHY A SUBPROCESS. TensorFlow and this ROCm torch cannot share an interpreter:
-
-  * import order alone is fatal: torch then tensorflow aborts outright with
-    "LLVM ERROR: inconsistency in registered CommandLine options", which is an
-    abort and not an exception, so nothing can catch it; and
-  * even with tensorflow imported FIRST, a later ROCm GPU dispatch segfaults
-    (measured: rexgraph/tests/test_gpu_dispatch.py exits -11 with tf resident and
-    passes without it).
-
-So the comparison runs in a child that imports tensorflow before torch and stays on
-CPU, and the parent never touches tf at all. This is the integration working within
-a real constraint rather than a workaround for a bug in rexgraph.
+Each comparison runs on CPU in a child process that imports TensorFlow first.
+The parent checks package availability without initializing TensorFlow, keeping
+framework runtime state separate from the other tests.
 """
 import importlib.util
 import json
@@ -26,10 +13,7 @@ import textwrap
 
 import pytest
 
-# find_spec, NOT importorskip: importing tensorflow into THIS process is exactly
-# what must not happen. A later ROCm GPU dispatch segfaults with tf resident
-# (test_gpu_dispatch exits -11), and collection imports every test module before
-# any test runs, so an importorskip here would take the GPU tests down.
+# Check availability without initializing TensorFlow in the parent process.
 if importlib.util.find_spec("tensorflow") is None:      # pragma: no cover
     pytest.skip("tensorflow not installed", allow_module_level=True)
 

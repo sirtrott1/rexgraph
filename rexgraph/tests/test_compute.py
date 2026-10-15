@@ -1,6 +1,7 @@
 """The compute backend layer (rexgraph.compute): backend registry + availability, thread control,
 and op dispatch to the best available backend with fallback."""
 import rexgraph.compute as C
+import pytest
 
 
 def test_builtin_backends_present():
@@ -26,6 +27,35 @@ def test_thread_control_roundtrip():
     assert C.get_threads() is None
     if old is not None:
         C.set_threads(old)
+
+
+def test_thread_reset_restores_native_pool_widths(monkeypatch):
+    import threadpoolctl
+    C.set_threads(None)
+    before = {pool["filepath"]: pool["num_threads"]
+              for pool in threadpoolctl.threadpool_info()}
+    monkeypatch.setenv("OMP_NUM_THREADS", "1")
+    try:
+        C.set_threads(3)
+        assert all(pool["num_threads"] == (1 if pool["internal_api"] == "openblas"
+                    and pool["version"] == "0.3.28" and pool["threading_layer"] == "pthreads" else 3)
+                   for pool in threadpoolctl.threadpool_info()
+                   if pool["filepath"] in before)
+        C.set_threads(2)
+        C.set_threads(None)
+        after = {pool["filepath"]: pool["num_threads"]
+                 for pool in threadpoolctl.threadpool_info()}
+        assert all(after[path] == width for path, width in before.items())
+    finally:
+        C.set_threads(None)
+
+
+@pytest.mark.parametrize("width", [0, -1, True, False])
+def test_invalid_thread_width_does_not_change_current_setting(width):
+    before = C.get_threads()
+    with pytest.raises(ValueError, match="positive integer"):
+        C.set_threads(width)
+    assert C.get_threads() == before
 
 
 def test_op_dispatch_routes_and_falls_back():

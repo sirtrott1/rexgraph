@@ -113,6 +113,7 @@ def test_rex_bundle_bad_version_raises(tmp_path):
 
 
 def test_safetensors_roundtrips_signs_and_attribution(tmp_path):
+    pytest.importorskip("safetensors", reason="this format requires rexgraph[io]")
     from rexgraph.io.safetensors_bridge import rex_to_safetensors, safetensors_to_rex
     g = _simple()                                # has signs [1,-1,1,-1]
     g.set_vertex_attribution(np.array([[0.1], [0.2], [0.3], [0.4]]))
@@ -155,6 +156,7 @@ def test_cell_metadata_key_with_double_underscore_roundtrips(tmp_path):
     g.attach_metadata(1, 0, "node__id", "X7")       # '__' in a user key used to KeyError on load
     p = str(tmp_path / "g.rcbd"); save_rcbd(p, g)
     assert load_rcbd(p).get_metadata(1, 0, "node__id") == "X7"
+    pytest.importorskip("safetensors", reason="this container requires rexgraph[io]")
     sp = str(tmp_path / "g.safetensors"); rex_to_safetensors(g, sp)
     assert safetensors_to_rex(sp).get_metadata(1, 0, "node__id") == "X7"
 

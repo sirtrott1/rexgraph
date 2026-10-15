@@ -85,9 +85,8 @@ class TestPinv:
 
 class TestRLPipeline:
     @pytest.fixture
-    def drct(self):
-        edges = [(0,1),(0,2),(0,3),(0,4),(0,5),(0,6),(0,7),
-                 (1,2),(1,3),(2,4),(3,5),(4,6),(5,7),(6,7),(1,7),(2,3)]
+    def ring_chords(self):
+        edges = [(i, (i + step) % 8) for step in (1, 2) for i in range(8)]
         nV, nE = 8, 16
         B1 = np.zeros((nV, nE), dtype=np.float64)
         for j, (s,t) in enumerate(edges): B1[s,j] = -1; B1[t,j] = 1
@@ -119,28 +118,28 @@ class TestRLPipeline:
         L_SG = np.diag(np.abs(Ks_off).sum(1))-Ks_off
         return B1, L1, L_O, L_SG, nV, nE
 
-    def test_trace(self, drct):
-        B1, L1, L_O, L_SG, nV, nE = drct
+    def test_trace(self, ring_chords):
+        B1, L1, L_O, L_SG, nV, nE = ring_chords
         r = rl_pipeline(B1, L1, L_O, L_SG)
         assert abs(np.trace(r['RL']) - 3) < 1e-10
 
-    def test_chi_simplex(self, drct):
-        B1, L1, L_O, L_SG, nV, nE = drct
+    def test_chi_simplex(self, ring_chords):
+        B1, L1, L_O, L_SG, nV, nE = ring_chords
         r = rl_pipeline(B1, L1, L_O, L_SG)
         assert max(abs(r['chi'][e].sum()-1) for e in range(nE)) < 1e-14
 
-    def test_phi_simplex(self, drct):
-        B1, L1, L_O, L_SG, nV, nE = drct
+    def test_phi_simplex(self, ring_chords):
+        B1, L1, L_O, L_SG, nV, nE = ring_chords
         r = rl_pipeline(B1, L1, L_O, L_SG)
         assert max(abs(r['phi'][v].sum()-1) for v in range(nV)) < 1e-14
 
-    def test_kappa_range(self, drct):
-        B1, L1, L_O, L_SG, nV, nE = drct
+    def test_kappa_range(self, ring_chords):
+        B1, L1, L_O, L_SG, nV, nE = ring_chords
         r = rl_pipeline(B1, L1, L_O, L_SG)
         assert np.all(r['kappa'] >= -1e-10) and np.all(r['kappa'] <= 1+1e-10)
 
-    def test_phi_reference(self, drct):
-        B1, L1, L_O, L_SG, nV, nE = drct
+    def test_phi_reference(self, ring_chords):
+        B1, L1, L_O, L_SG, nV, nE = ring_chords
         r = rl_pipeline(B1, L1, L_O, L_SG)
         def tn(L):
             tr=np.trace(L); return (L/tr,tr) if tr>1e-15 else (np.zeros_like(L),0)

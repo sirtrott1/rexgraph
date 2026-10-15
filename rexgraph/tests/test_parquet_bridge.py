@@ -21,6 +21,25 @@ import hmac
 import numpy as np
 import pytest
 
+
+def test_failed_parquet_write_preserves_previous_file(tmp_path, monkeypatch):
+    from pathlib import Path
+    pq = pytest.importorskip("pyarrow.parquet")
+    from rexgraph.io.parquet_bridge import write_parquet
+
+    path = tmp_path / "atomic.parquet"
+    write_parquet({"x": np.arange(3)}, path)
+    previous = path.read_bytes()
+
+    def fail(table, target, **kwargs):
+        Path(target).write_bytes(b"partial")
+        raise OSError("injected Parquet failure")
+
+    monkeypatch.setattr(pq, "write_table", fail)
+    with pytest.raises(OSError, match="injected"):
+        write_parquet({"x": np.arange(8)}, path)
+    assert path.read_bytes() == previous
+
 try:
     import pyarrow  # noqa: F401
     HAS_PYARROW = True
@@ -252,7 +271,7 @@ class TestGenericParquet:
 
 
 @pytest.mark.skipif(
-    not HAS_PARQUET_ENCRYPTION,
+    HAS_PYARROW and not HAS_PARQUET_ENCRYPTION,
     reason="PyArrow was built without Parquet encryption",
 )
 class TestParquetModularEncryption:

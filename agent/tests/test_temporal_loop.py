@@ -32,7 +32,7 @@ def test_change_source_skips_derived_tag():
         {"action": "rcdb.put", "scope": "network",
          "detail": {"id": "svc::online", "version": rec.version, "tags": []}})
     assert ctrl is not None and ctrl.rex is not None
-    # with the derived tag present, the guard skips it (proven distinct from the control)
+    # with the derived tag present, the guard skips it (checked against the control)
     guarded = ChangeSource(store)._event_from_pub(
         {"action": "rcdb.put", "scope": "network",
          "detail": {"id": "svc::online", "version": rec.version, "tags": [DERIVED_TAG]}})

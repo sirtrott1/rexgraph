@@ -5,7 +5,7 @@ so a corpus could be read AS IT STOOD. What did not exist is time as a ranking
 signal: nothing preferred settled evidence over churning evidence, or recent over
 stale, once the candidates were structurally scored.
 
-Everything here reads STORED SIGNATURES ONLY. store.history returns records without
+Everything here reads STORED SIGNATURES only. store.history returns records without
 touching a blob, and a signature already carries nV/nE/betti1/kappa_mean per version,
 so per candidate temporal features cost dict arithmetic rather than a reconstruction
 per version. rcdb.trajectory does the expensive thing (a blob per version plus a

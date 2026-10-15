@@ -210,10 +210,7 @@ def test_get_ver_falls_back_for_backend_without_get_version():
     assert r2.nE == 5
 
 
-# parametrized over all three backends, plus a
-# versioned store dogfood test. Everything below exercises behavior already
-# implemented in Tasks 1 to 9; the point is coverage and cross backend proof,
-# not new production code.
+# Compare versioned operations across the supported store backends.
 
 def _open(backend, tmp_path, name="db"):
     """Open a fresh store of the given kind, isolated per test via tmp_path."""

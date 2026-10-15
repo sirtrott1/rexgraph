@@ -274,7 +274,7 @@ def _certificate(source, target, rule, arguments, before, after):
         raise ValueError("interface transformation changed shared value realization")
     if _contract(source) != _contract(target):
         raise ValueError("interface transformation changed operator requirements")
-    proof = {"rule_version": "rcql.name-interface.v1", "scope": "declaration under explicit interface renaming",
+    verification = {"rule_version": "rcql.name-interface.v1", "scope": "declaration under explicit interface renaming",
             "source_digest": source.coefficient_digest, "target_digest": target.coefficient_digest,
             "ports": ports, "captures": tuple((k, k, digest(v)) for k, v in source.bound_values),
             "operation_mapping": tuple(zip(a.spaces[1].keys, b.spaces[1].keys, strict=True)),
@@ -289,12 +289,12 @@ def _certificate(source, target, rule, arguments, before, after):
     if rule == "section_readout":
         from .readout_equivalence import ReadoutEquivalence
         claim = ReadoutEquivalence.claim(arguments[0])
-        proof.update(rule_version="rcql.section-readout.v1",
+        verification.update(rule_version="rcql.section-readout.v1",
             scope="guarded linear readout values on the declared affine family",
             readout_claim=claim, readout_status="requires exact live inputs at compilation and application",
             dependencies=(claim["family"], claim["left"], claim["right"]),
             dependency_scope="exact family and both readout declarations")
-    return proof
+    return verification
 
 
 @dataclass(frozen=True)
@@ -360,10 +360,10 @@ class ProgramTransformation:
     @classmethod
     def _create(cls, operation, target, rule, arguments):
         before, after = operation.topology(), target.topology()
-        proof = _certificate(operation, target, rule, arguments, before, after)
+        verification = _certificate(operation, target, rule, arguments, before, after)
         return cls(dumps({"schema": "rcql.program-transformation", "version": 1,
                           "source": operation.to_bytes(), "target": target.to_bytes(),
-                          "rule": rule, "arguments": arguments, "certificate": proof,
+                          "rule": rule, "arguments": arguments, "certificate": verification,
                           "before": _topology_payload(before), "after": _topology_payload(after)}))
 
     @classmethod
@@ -383,10 +383,10 @@ class ProgramTransformation:
             arguments = tuple(arguments)
         else:
             raise ValueError("unsupported finite program transformation or arguments")
-        proof = _program_certificate(program, target, rule, arguments)
+        verification = _program_certificate(program, target, rule, arguments)
         return cls(dumps({"schema": "rcql.program-transformation", "version": 2,
             "source": program.to_bytes(), "target": target.to_bytes(), "rule": rule,
-            "arguments": arguments, "certificate": proof}))
+            "arguments": arguments, "certificate": verification}))
 
     @property
     def is_program(self):
@@ -421,10 +421,10 @@ class ProgramTransformation:
             source, target = Program.from_bytes(data["source"]), Program.from_bytes(data["target"])
             if operation is not None and (not isinstance(operation, Program) or operation.coefficient_digest != source.coefficient_digest):
                 raise ValueError("transformation source program mismatch")
-            proof = _program_certificate(source, target, data["rule"], data["arguments"])
-            if dumps(proof) != dumps(data["certificate"]):
+            verification = _program_certificate(source, target, data["rule"], data["arguments"])
+            if dumps(verification) != dumps(data["certificate"]):
                 raise ValueError("program transformation certificate mismatch")
-            return proof
+            return verification
         fields = {"schema", "version", "source", "target", "rule", "arguments", "certificate", "before", "after"}
         if (not isinstance(data, dict) or set(data) != fields or data["schema"] != "rcql.program-transformation"
                 or type(data["version"]) is not int or data["version"] != 1):
@@ -437,10 +437,10 @@ class ProgramTransformation:
                 raise ValueError("transformation source declaration mismatch")
         before = _restore_topology(data["before"], source)
         after = _restore_topology(data["after"], target)
-        proof = _certificate(source, target, data["rule"], data["arguments"], before, after)
-        if dumps(proof) != dumps(data["certificate"]):
+        verification = _certificate(source, target, data["rule"], data["arguments"], before, after)
+        if dumps(verification) != dumps(data["certificate"]):
             raise ValueError("transformation certificate does not match its declarations")
-        return proof
+        return verification
 
     def topology(self):
         self.verify()
@@ -452,13 +452,13 @@ class ProgramTransformation:
     def compile(self, binding, operation, arguments):
         """Validate current bindings and return the candidate without evaluating it."""
         from .execution_trace import current_evidence
-        proof = self.verify(operation)
+        verification = self.verify(operation)
         if self.is_program:
             raise ValueError("use TRANSFORM_PROGRAM_COMPILE with explicit sources and parameters")
         data = loads(self.data)
         candidate = NameRelation.from_bytes(data["target"])
         supplied = bound_arguments(candidate.inputs, candidate.defaults, arguments)
-        original = {old: supplied[new] for old, new in proof["ports"]}
+        original = {old: supplied[new] for old, new in verification["ports"]}
         if data["rule"] == "specialize":
             original.update(data["arguments"])
         binding.source.require("read")
@@ -488,14 +488,14 @@ class ProgramTransformation:
         from .program import Program
         from .program_operators import _program_executor
         from collections.abc import Mapping
-        proof = self.verify(program)
+        verification = self.verify(program)
         if not self.is_program or not isinstance(parameters, Mapping):
             raise TypeError("program compilation requires a program transformation and explicit parameters")
         data = loads(self.data)
         candidate = Program.from_bytes(data["target"])
         if set(parameters) != {v.name for v in candidate.inputs}:
             raise ValueError("candidate parameters must match the declared open inputs")
-        original = {old: parameters[new] for old, new in proof["ports"]}
+        original = {old: parameters[new] for old, new in verification["ports"]}
         if data["rule"] == "specialize":
             original.update(data["arguments"])
         before = program.execute(_program_executor(sources, original), explain=True)

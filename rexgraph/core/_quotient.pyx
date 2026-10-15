@@ -709,7 +709,7 @@ def relative_betti(np.ndarray[f64, ndim=2] B1_quot,
 
     import scipy.sparse as sp
     from rexgraph.graded_boundary import _sparse_rank
-    # Betti from RANKS (canon Part III), computed EXACTLY and eigen free from the
+    # Betti from boundary ranks, computed EXACTLY and eigen free from the
     # INTEGER quotient boundary maps via rational column reduction: no dense SVD,
     # no spectrum Betti. rank(B1) also gives beta0 = nV_quot - rank(B1) (component
     # count), matching a union find over the quotient 1 skeleton.

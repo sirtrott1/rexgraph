@@ -1,14 +1,9 @@
-"""Effective resistance on a complex whose L0 has a kernel, and Foster's identity.
+"""Check effective resistance for singular vertex Laplacians.
 
-R_eff(e) = b_e^T L0^+ b_e was computed by running CG on the raw singular L0. A
-boundary column lies in the range so that converges in exact arithmetic, but the
-solver clamped a zero curvature up to 1e-300 instead of treating it as "no progress
-possible", and rz/1e-300 is an overflow. On a 66 component ontology slice 348 of 385
-relations came back NaN, and `agentic_reading` ranks load_bearing on this.
-
-The fix is the harmonic regularized inverse L0^+ = (L0 + P_H)^-1 - P_H, with P_H the
-projector onto the known kernel (the component indicators). b_e is orthogonal to that
-kernel, so P_H b_e = 0 and R_eff = b_e^T (L0 + P_H)^-1 b_e, on an SPD operator.
+For a boundary column b, resistance is ``b.T @ L0^+ @ b``. The implementation
+regularizes with the known harmonic projector ``P_H`` and solves against
+``L0 + P_H``. Tests compare the result with dense pseudoinverses, verify finite
+values and check that full relation resistance sums match the boundary rank.
 """
 from __future__ import annotations
 

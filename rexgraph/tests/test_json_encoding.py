@@ -94,7 +94,7 @@ def test_a_bundle_manifest_is_always_strict_json(tmp_path):
             if f.endswith(".json"):
                 seen += 1
                 _strict_loads(pathlib.Path(root, f).read_text())
-    assert seen, "no manifest was written, the test proves nothing"
+    assert seen, "no manifest was written"
 
 
 def test_every_json_writer_shares_the_one_encoder():

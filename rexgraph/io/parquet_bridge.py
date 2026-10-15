@@ -99,7 +99,7 @@ import contextlib
 from ._compat import dumps as _dumps
 from .columnar import column_declarations, decoded_columns, physical_columns, projected_columns
 
-# Edge type names matching the EdgeType enum in types.py
+# Edge type names match the EdgeType enum in rextypes.py.
 _EDGE_TYPE_NAMES = {0: "standard", 1: "self_loop", 2: "branching", 3: "witness"}
 
 
@@ -170,11 +170,9 @@ def write_parquet(
     if schema_meta:
         table = table.replace_schema_metadata(schema_meta)
 
-    pq.write_table(
-        table,
-        os.fspath(path),
-        encryption_properties=encryption_properties,
-    )
+    from .publication import staged_publication
+    with staged_publication(path) as staged:
+        pq.write_table(table, str(staged), encryption_properties=encryption_properties)
 
 
 def read_parquet(
@@ -820,29 +818,35 @@ def read_parquet_batches(
 
     Yields dict of name -> ndarray per batch.
     """
+    if type(batch_rows) is not int or batch_rows <= 0:
+        raise ValueError("Parquet batch_rows must be a positive integer")
     pa, pq = _pq()
 
     pf = pq.ParquetFile(
         os.fspath(path),
         decryption_properties=decryption_properties,
     )
-    declaration = column_declarations(pf.schema_arrow)
-    projection = projected_columns(pf.schema_arrow, declaration, columns)
-    pending: list[dict[str, np.ndarray]] = []
-    pending_rows = 0
+    try:
+        declaration = column_declarations(pf.schema_arrow)
+        projection = projected_columns(pf.schema_arrow, declaration, columns)
+        pending: list[dict[str, np.ndarray]] = []
+        pending_rows = 0
 
-    for batch in pf.iter_batches(batch_size=batch_rows, columns=projection):
-        chunk = decoded_columns(batch, declaration, columns=columns)
-        pending.append(chunk)
-        pending_rows += batch.num_rows
+        for batch in pf.iter_batches(batch_size=batch_rows, columns=projection):
+            chunk = decoded_columns(batch, declaration, columns=columns)
+            pending.append(chunk)
+            pending_rows += batch.num_rows
 
-        if pending_rows >= batch_rows:
+            if pending_rows >= batch_rows:
+                yield _merge_dicts(pending)
+                pending = []
+                pending_rows = 0
+
+        if pending:
             yield _merge_dicts(pending)
-            pending = []
-            pending_rows = 0
 
-    if pending:
-        yield _merge_dicts(pending)
+    finally:
+        pf.close()
 
 
 def _merge_dicts(batches: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:

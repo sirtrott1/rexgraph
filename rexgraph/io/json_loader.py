@@ -33,6 +33,66 @@ from typing import Any
 
 import numpy as np
 
+_STATE_JSON_VERSION = "rexgraph-state-v1"
+
+
+def _unique_json(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON field {key!r}")
+        result[key] = value
+    return result
+
+
+def save_rexgraph_json(path, obj):
+    """Write complete canonical state in a versioned JSON value envelope."""
+    import base64
+    from rexgraph.graph import RexGraph, TemporalRex
+    from rexgraph.value_codec import pack_value
+    from .publication import staged_publication
+
+    if isinstance(obj, TemporalRex):
+        from rexgraph.temporal_state import to_temporal_state
+        state = to_temporal_state(obj)
+    elif isinstance(obj, RexGraph):
+        from rexgraph.state import to_state
+        state = to_state(obj)
+    else:
+        raise TypeError("JSON state requires RexGraph or TemporalRex")
+    payload = pack_value({"header": state.header, "tensors": state.tensors})
+    data = {"rexgraph_json": _STATE_JSON_VERSION,
+            "state": base64.b64encode(payload).decode("ascii")}
+    with staged_publication(path) as staged:
+        staged.write_text(json.dumps(data, ensure_ascii=True), encoding="utf-8")
+
+
+def _load_state_json(data):
+    import base64
+    import binascii
+    from rexgraph.value_codec import unpack_value
+
+    if set(data) != {"rexgraph_json", "state"} or data["rexgraph_json"] != _STATE_JSON_VERSION:
+        raise ValueError("unsupported JSON state envelope")
+    if type(data["state"]) is not str:
+        raise ValueError("JSON state requires a base64 value payload")
+    try:
+        payload = unpack_value(base64.b64decode(data["state"], validate=True))
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("invalid JSON state payload") from exc
+    if type(payload) is not dict or set(payload) != {"header", "tensors"}:
+        raise ValueError("invalid JSON state declaration")
+    header, tensors = payload["header"], payload["tensors"]
+    if type(header) is not dict or type(tensors) is not dict:
+        raise ValueError("invalid JSON state declaration")
+    if header.get("object_type") == "TemporalRex":
+        from rexgraph.temporal_state import TemporalState, from_temporal_state
+        return from_temporal_state(TemporalState(tensors, header))
+    if header.get("object_type") == "RexGraph":
+        from rexgraph.state import RexState, from_state
+        return from_state(RexState(tensors, header))
+    raise ValueError("unknown JSON state object type")
+
 
 def load_json(
     path: str | os.PathLike,
@@ -62,7 +122,7 @@ def load_json(
     RexGraph
     """
     with open(path, encoding="utf-8") as f:
-        data = json.load(f)
+        data = json.load(f, object_pairs_hook=_unique_json)
 
     if format is None:
         format = _detect_format(data)
@@ -84,6 +144,8 @@ def load_json(
 def _detect_format(data: Any) -> str:
     """Detect JSON format from structure."""
     if isinstance(data, dict):
+        if "rexgraph_json" in data:
+            return "rexgraph"
         # RexGraph native: has boundary_ptr
         if "boundary_ptr" in data:
             return "rexgraph"
@@ -122,6 +184,8 @@ def _detect_format(data: Any) -> str:
 
 def _load_rexgraph_json(data: dict) -> Any:
     """Load from RexGraph.to_json() output."""
+    if "rexgraph_json" in data:
+        return _load_state_json(data)
     from ..graph import RexGraph
 
     kw = {

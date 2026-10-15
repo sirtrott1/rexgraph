@@ -23,9 +23,7 @@ __all__ = ["LexicalAnswerer", "LinkageAnswerer", "OntologyAnswerer",
            "PassageAnswerer", "register", "exact_answers", "registered",
            "register_with_hive"]
 
-#: name -> (answerer, render). Instantiated once per process: a lexicon is 161,705
-#: entries and 2.6 s to read, and an ontology is a parse plus a complex build, so a
-#: per query construction would make an exact answer look like an expensive one.
+#: name -> (answerer, render). Reuse loaded sources across queries.
 _REGISTRY: dict[str, tuple] = {}
 
 
@@ -52,9 +50,7 @@ def _default_registry() -> dict:
         # ontology, and an answerer with nothing loaded declines every query, which is
         # correct but is not worth a construction per process.
         import os
-        # the linkage sources register when their files are on disk. Each is cheap to
-        # read (Roget 1.5 MB, the Wiktionary index 63 MB of binary) and each answers
-        # kinds the others do not, so the union covers what no single lexicon does.
+        # Register available lexical sources; each contributes its supported answer kinds.
         from agent.answerers.linkage import DEFAULT_ROGET, DEFAULT_WIKTIONARY
         if os.path.exists(DEFAULT_ROGET):
             register("roget", LinkageAnswerer.roget())

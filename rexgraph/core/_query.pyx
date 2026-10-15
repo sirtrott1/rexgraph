@@ -196,7 +196,7 @@ def spectral_propagate(RL, hats, Py_ssize_t nhats,
         typed_scores[k] = float(np.dot(source, ch_prop))
 
     # A positive definite RL has no null space, so every mode is covered. The Cholesky
-    # that already succeeded is the proof; there is nothing to count.
+    # factorization has already succeeded, so no nullity calculation is needed.
     coverage = 1.0
 
     return {

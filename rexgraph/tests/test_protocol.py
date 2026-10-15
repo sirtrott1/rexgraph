@@ -74,6 +74,7 @@ def test_the_cold_save_round_trips_through_every_container(tmp_path):
     assert int(back.nF) == 2
     assert tuple(back.betti) == (1, 0, 0), "the faces did not survive the save"
 
+    pytest.importorskip("safetensors", reason="this container requires rexgraph[io]")
     st = str(tmp_path / "cold.safetensors")
     rex_to_safetensors(_filled(), st)
     assert int(load_safetensors(st)["object"].nF) == 2

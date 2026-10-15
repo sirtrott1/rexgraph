@@ -1,21 +1,10 @@
-"""
-benchmarks: standard ML benchmarks for comparing optimizers on real, recognized tasks.
+"""Training benchmarks with generated matrices or named public image datasets.
 
-The point: settle optimizer claims (hodge / hodge arch vs Adam/AdamW/SGD) where the community can
-compare, not on toy data. Each benchmark builds a real model + data + eval metric and runs with ANY
-registered optimizer (`nn.make_optimizer`), streaming loss, so `benchmark_ab` gives a fair,
-held out comparison and a metric aware verdict. Every model here is feature space, so the routing
-default resolves to plain Adam; the hodge arms are named by the caller because they are what is
-under test.
-
-Two kinds:
-  - `ill-cond`: a CONTROLLED ill conditioned matrix regression (tunable condition number κ). No
-    download, runs anywhere, and it is exactly the regime where per-Hodge-component preconditioning
-    is supposed to help: the diagnostic that actually tests the claim.
-  - `mnist` / `fashion-mnist` / `cifar10`: the recognized image classification benchmarks (loaded
-    via the `datasets` extra), an MLP trained to test accuracy.
-
-Everything degrades cleanly without torch/datasets.
+Each task builds its inputs, model and evaluation split, then uses
+make_optimizer to construct the selected optimizer. Returned metrics
+describe the current run. benchmark_ab repeats the same task and seed
+for each optimizer and selects a learning rate from the supplied grid.
+Missing optional dependencies produce an explicit skipped result.
 """
 from __future__ import annotations
 
@@ -78,7 +67,7 @@ def run_benchmark(name: str, *, optimizer: str = "auto", steps: int = 200,
 _LR_GRID = (1e-3, 3e-3, 1e-2, 3e-2, 1e-1)
 
 
-def benchmark_ab(name: str, *, optimizers=("hodge", "adam"), steps: int = 200,
+def benchmark_ab(name: str, *, optimizers=("adam", "adamw"), steps: int = 200,
                  lrs=_LR_GRID, on_step: Callable = None, **kw) -> dict:
     """A/B the same benchmark under each optimizer (same data/seed). FAIR BY DEFAULT: each
     optimizer is tuned over an lr grid and keeps its best. A fixed lr comparison only measures
@@ -121,15 +110,16 @@ def benchmark_ab(name: str, *, optimizers=("hodge", "adam"), steps: int = 200,
             "higher_better": higher, "verdict": verdict}
 
 
-#### the controlled ill conditioned benchmark (the claim test, runs anywhere)
+# Generated matrix regression
 def _ill_conditioned(*, optimizer, steps, lr, device, seed, on_step, label,
                      d_in: int = 64, d_out: int = 16, n: int = 512, kappa: float = 1000.0,
                      noise: float = 0.1, **kw):
-    """Multi output linear regression Y = X·W (+ noise) with X's spectrum set so cond(XᵀX) = κ. The
-    weight W is a real matrix, so the hodge arm has something to decompose; the Hessian condition
-    number is κ, the regime a per component preconditioner is claimed to help. `noise` gives a
-    non trivial optimum (not exactly 0), so the metric measures real generalization. Metric =
-    held out MSE (lower better)."""
+    """Train linear regression with a configured input condition number.
+
+    The task generates X and noisy targets XW, then reports mean squared
+    error on a held out split. kappa controls the input Gram condition
+    number, and seed controls the generated inputs and initial parameters.
+    """
     import rexgraph.nn as nn
     from rexgraph.nn import optim
     _t.manual_seed(seed)
@@ -174,8 +164,11 @@ def _ill_conditioned(*, optimizer, steps, lr, device, seed, on_step, label,
 def _image_clf(dataset_name, image_key, *, optimizer, steps, lr, device, seed, on_step, label,
                hidden: int = 256, batch: int = 128, train_n: int = 4000, eval_n: int = 1000,
                conv: bool = False, **kw):
-    """Standard image dataset → test accuracy, with an MLP or (conv=True) a small CNN whose 4 tensor
-    kernels exercise the general k-tensor Hodge split. Loads via HF `datasets`."""
+    """Train an image classifier on the selected public dataset.
+
+    The dataset is loaded through the optional datasets package. The task
+    reports classification accuracy on an evaluation split.
+    """
     import numpy as np
     from datasets import load_dataset
 
@@ -248,9 +241,12 @@ def _image_clf(dataset_name, image_key, *, optimizer, steps, lr, device, seed, o
 
 def _matrix_completion(*, optimizer, steps, lr, device, seed, on_step, label,
                        m: int = 40, n: int = 40, rank: int = 3, obs: float = 0.4, **kw):
-    """Low rank matrix completion: recover M = A·Bᵀ (rank r) from a random `obs` fraction of its
-    entries by fitting U·Vᵀ. NON CONVEX, and U/V are real matrices, so the hodge arm decomposes them.
-    Metric = MSE on the HELD OUT (unobserved) entries: generalization on a non convex problem."""
+    """Fit a low rank matrix factorization on selected observed entries.
+
+    The generated matrix is split into training and evaluation masks.
+    The task fits U V transpose and reports mean squared error on the
+    entries withheld from training.
+    """
     import rexgraph.nn as nn
     from rexgraph.nn import optim
     _t.manual_seed(seed)
@@ -288,51 +284,10 @@ def _matrix_completion(*, optimizer, steps, lr, device, seed, on_step, label,
             "improved": bool(evals and evals[-1] < evals[0])}
 
 
-def _bilinear_game(*, optimizer, steps, lr, device, seed, on_step, label,
-                   d: int = 16, **kw):
-    """Bilinear min–max game: minₓ max_Y ⟨X, C·Y⟩ with equilibrium at X=Y=0. Its gradient field is
-    purely ROTATIONAL: simultaneous descent/ascent orbits and naive methods don't converge. This
-    is the regime where damping the rotational component (the hodge arm's `gamma_curl`) is claimed
-    to matter. Metric = distance to equilibrium ‖X‖²+‖Y‖² at the end (lower = converged)."""
-    import rexgraph.nn as nn
-    from rexgraph.nn import optim
-    _t.manual_seed(seed)
-    dev = optim.pick_device(device)
-    C = _t.randn(d, d, device=dev)
-    X = _nn.Parameter(_t.randn(d, d, device=dev))
-    Y = _nn.Parameter(_t.randn(d, d, device=dev))
-    opt, opt_class = nn.make_optimizer(optimizer, _nn.ParameterList([X, Y]), [X, Y],
-                                       n_heads=1, lr=lr or 1e-2)
-
-    def _dist():
-        with _t.no_grad():
-            return round(float((X ** 2).sum() + (Y ** 2).sum()), 6)
-
-    traj, evals = [], []
-    for i in range(steps):
-        f = (X * (C @ Y)).sum()                 # ⟨X, C·Y⟩
-        opt.zero_grad(); f.backward()
-        if Y.grad is not None:
-            Y.grad.neg_()                       # ascend on Y (min–max)
-        opt.step()
-        dist = _dist()
-        traj.append(dist)
-        if i % 5 == 0 or i == steps - 1:
-            evals.append(dist)
-        if on_step:
-            on_step(label, i, dist, steps)
-    return {"optimizer": optimizer, "optimizer_class": opt_class, "device": dev,
-            "benchmark": "bilinear-game", "steps": len(traj),
-            "loss_start": traj[0] if traj else None, "loss_final": traj[-1] if traj else None,
-            "eval_start": evals[0] if evals else None, "eval_final": evals[-1] if evals else None,
-            "eval_trajectory": evals, "trajectory": traj,
-            "metric": evals[-1] if evals else None, "metric_name": "dist to equilibrium",
-            "improved": bool(evals and evals[-1] < evals[0])}
 
 
 register_benchmark("ill-cond", _ill_conditioned, higher_better=False, needs=("torch",),
-                   description="Controlled ill-conditioned matrix regression (tune kappa), where "
-                               "per-Hodge-component preconditioning should beat Adam. Metric: eval MSE.")
+                   description="Generated matrix regression with a configured condition number. Metric: evaluation MSE.")
 register_benchmark("matrix-completion", _matrix_completion, higher_better=False, needs=("torch",),
                    description="Non-convex low-rank matrix completion (tune obs/rank). Metric: held-out MSE.")
 register_benchmark("mnist", lambda **kw: _image_clf("ylecun/mnist", "image", **kw),

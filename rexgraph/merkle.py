@@ -1,8 +1,8 @@
-"""Document Merkle trees with binary sibling proofs at each layer.
+"""Document Merkle trees with binary sibling verification paths at each layer.
 
 The document hierarchy supplies sentence, paragraph, chapter and root levels.
 Binary trees within sibling sets retain those named levels while bounding each
-level's proof by its fanout. Native state retains the data needed to derive leaves.
+level's path length by its fanout. Native state retains the data needed to derive leaves.
 """
 from __future__ import annotations
 
@@ -133,10 +133,11 @@ class LayerMerkle:
         return self.roots[layer][i]
 
     def proof(self, leaf):
-        """`[(sibling, is_right, layer)]` from base section `leaf` to the document root.
+        """Return (sibling, is_right, layer) entries from a leaf to the root.
 
-        The `layer` tag is the point of the whole construction: a verifier can say which
-        paragraph and which chapter it climbed through, not merely that some path exists.
+        Each layer tag identifies the named sectioning level traversed by
+        that part of the path. The sibling digests and orientation flags
+        supply the inputs required to recompute the document root.
         """
         out, idx = [], int(leaf)
         for k, layer in enumerate(self.chain):
@@ -207,30 +208,16 @@ def build_merkle(rex, *, base=None, leaves=None):
 # serialisation
 
 def pack_merkle(rex, t, h, *, base=None):
-    """Store the LEAVES and the root; every interior node is recomputable from them.
+    """Return Merkle metadata derived from the complex's sectioning state.
 
-    Nothing is stored: the tree is a pure function of state the file already carries.
-    The interior is the leaves and the parent maps; the leaves are what `_leaf_digests`
-    builds "from the STATE and nothing else": the section labels, the spans, and the
-    boundary columns of the cells it owns, every one of them already a tensor here. A
-    stored digest is a cached hash of data sitting beside it.
+    The metadata contains the layer chain, root digest and leaf count.
+    Leaf and interior digests are recomputed from boundary columns, labels,
+    spans and parent maps already carried by the complex. No digest arrays
+    are added to t or h, and source text is not read.
 
-    Storing them would not make a proof checkable "without the source text the leaves
-    were built from", because that is not what they are built from: `_leaf_digests`
-    never touches the text. Digests are also at full entropy, the one part of a file no
-    compressor can touch, so they weigh on the COMPRESSED size far more than the raw.
-
-    Deriving them makes verification stronger. Checking stored leaves against a stored
-    root asks "do these leaves make this root". Recomputing from state asks "does this
-    complex make this root", which is the question that catches a tampered boundary
-    column.
-
-    `layer_roots`, every interior node of every coarser layer, is not written either.
-    Nothing reads it: `unpack_merkle` takes `chain` and `root`, and `layer_digest` reads
-    the `roots` that `build_merkle` recomputes. As hex in the JSON header it is 72.8 MiB
-    on Webster's Unabridged (nV 223,609, nE 1,991,070), and the header is written twice,
-    so 145.6 MiB against safetensors' 100 MB limit: the document cannot be stored at
-    all. Digests are bytes and belong in a tensor, where the leaves already are.
+    Returns None if sectionings are absent or a valid hierarchy cannot
+    be built. unpack_merkle reconstructs the tree and compares its root
+    with this metadata when verification is requested.
     """
     from rexgraph.sectioning import sectionings_of
 

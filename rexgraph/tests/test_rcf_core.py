@@ -5,7 +5,7 @@ Tests: _frustration (L_SG), _relational (RL, Green cache),
 _character (chi, phi, kappa), _void (Bvoid, eta, L_full identity),
 _rcfe (curvature, Bianchi), _joins (inner, outer),
 _query (predicate mask, imputation), _fiber (cosine, projection),
-K4 uniform character theorem.
+K4 character normalization with the selected channel operators.
 
 32 assertions covering every new module.
 """

@@ -56,7 +56,8 @@ def test_mixed_batch_keeps_both(tmp_path):
     )
     ids = {d.doc_id for d in corpus.documents}
     assert "ocrdoc" in ids
-    assert "edges" in ids  # the CSV is no longer dropped
+    assert any(d.source == str(csv) and d.meta['source_label'] == 'edges.csv'
+               for d in corpus.documents)
 
 
 # P3/max_vocab leak: non text adapters tolerate extra kwargs

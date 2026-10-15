@@ -101,9 +101,16 @@ def json_batches(source, *, schema, batch_size, max_record_bytes, max_document_b
     if type(max_document_bytes) is not int or max_document_bytes <= 0:
         raise ValueError("JSON document limit must be positive")
     with source_stream(source) as stream:
-        raw = stream.read(max_document_bytes+1)
-    if len(raw.encode("utf-8")) > max_document_bytes:
-        raise ValueError("JSON document exceeds the declared byte limit; use JSONL for streaming")
+        parts, size = [], 0
+        while True:
+            part = stream.read(min(64*1024, max_document_bytes-size+1))
+            if not part:
+                break
+            size += len(part.encode("utf-8"))
+            if size > max_document_bytes:
+                raise ValueError("JSON document exceeds the declared byte limit; use JSONL for streaming")
+            parts.append(part)
+        raw = "".join(parts)
     def whitespace(index):
         while index < len(raw) and raw[index] in " \t\r\n":
             index += 1
@@ -167,11 +174,14 @@ def parquet_batches(source, *, schema, batch_size, max_record_bytes, columns=Non
 def arrow_batches(source, *, schema, batch_size, max_record_bytes):
     import pyarrow as pa
     with source_stream(source, binary=True) as stream:
-        try:
-            reader = pa.ipc.open_file(stream)
-        except pa.ArrowInvalid:
-            stream.seek(0)
+        if not stream.seekable():
             reader = pa.ipc.open_stream(stream)
+        else:
+            try:
+                reader = pa.ipc.open_file(stream)
+            except pa.ArrowInvalid:
+                stream.seek(0)
+                reader = pa.ipc.open_stream(stream)
         if hasattr(reader, "get_batch"):
             batch_iter = (reader.get_batch(i) for i in range(reader.num_record_batches))
         else:

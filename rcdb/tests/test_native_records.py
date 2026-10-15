@@ -70,7 +70,7 @@ def test_mixed_native_history_replays_through_single_copy_seam(source_kind, targ
         with closing(opened(target_kind, tmp_path / "target", compression=BlobCodecSpec("zlib"))) as target:
             source.put("graph", RexGraph.from_graph([0], [1]), analytics=False, _tx_time=10.0)
             source.put_record("data", value(), tx_time=10.0, meta={"q": Fraction(1, 7)}, tags=["typed"])
-            source.put_record("proof", {"digest": source.state_digest(), "method": "exact"},
+            source.put_record("verification", {"digest": source.state_digest(), "method": "exact"},
                               codec=PROVENANCE_CODEC, tx_time=15.0)
             source.delete("data", tx_time=20.0)
             source.put_record("data", value(2), tx_time=30.0)

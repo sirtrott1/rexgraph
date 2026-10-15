@@ -37,6 +37,48 @@ from rexgraph.io.bundle import (
 )
 
 
+def test_logical_array_access_matches_encoded_temporal_members(tmp_path):
+    from rexgraph.graph import TemporalRex
+
+    graph = TemporalRex([(np.array([0, 1], dtype=np.int32),
+                          np.array([1, 2], dtype=np.int32))])
+    path = tmp_path / "logical.rcbd"
+    save_rcbd(path, graph)
+    bundle = RCBDBundle.load(path, mmap=True)
+    name = "checkpoint/0/boundary_idx"
+    assert name in bundle
+    assert name in bundle.list_arrays()
+    assert isinstance(bundle[name], np.memmap)
+    np.testing.assert_array_equal(bundle[name], graph.at(0)._boundary_idx)
+
+
+def test_bundle_array_access_cannot_escape_container(tmp_path):
+    graph = RexGraph.from_graph([0], [1])
+    path = tmp_path / "contained.rcbd"
+    save_rcbd(path, graph)
+    np.save(tmp_path / "outside.npy", np.array([123]))
+    bundle = RCBDBundle.load(path)
+    assert "../outside" not in bundle
+    with pytest.raises(KeyError):
+        bundle["../outside"]
+
+
+def test_interrupted_bundle_publication_keeps_previous_graph(tmp_path, monkeypatch):
+    path = tmp_path / "interrupted.rcbd"
+    save_rcbd(path, RexGraph.from_graph([0], [1]))
+    replace = os.replace
+
+    def interrupt(source, target):
+        if pathlib.Path(target) == path and ".tmp-" in pathlib.Path(source).name:
+            raise KeyboardInterrupt("publication interrupted")
+        return replace(source, target)
+
+    monkeypatch.setattr(os, "replace", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        save_rcbd(path, RexGraph.from_graph([0, 1], [1, 2]))
+    assert load_rcbd(path).nE == 1
+
+
 class _BundleAeadProperties:
     """Test only opaque AEAD property; core never receives the keys."""
 

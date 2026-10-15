@@ -363,7 +363,7 @@ def configure_algorithms(
     eigen_dense_limit : int, optional
         Maximum matrix dimension for dense eigh (LAPACK dsyevd).
         Above this, sparse eigsh (ARPACK) is used.
-        Default: 2000 (eigh takes ~0.4s at n=2000, ~20s at n=5000).
+        Default: 2000.
     default_k : int, optional
         Number of eigenvalues to compute in sparse mode (default 20).
     fill_ratio_dense_threshold : float, optional

@@ -27,11 +27,13 @@ TLS certificates:
     rexgraph-auth gen-cert --domain hpc.university.edu
 
 Usage with other CLI tools:
-    rexgraph-run paper.pdf --server https://localhost:8000
+    rexgraph-run document.pdf --server https://localhost:8000
     # Uses stored credentials from 'rexgraph-auth login'
 """
 
 from __future__ import annotations
+
+from agent.data_paths import config_root
 
 import argparse
 import getpass
@@ -42,17 +44,8 @@ import time
 from pathlib import Path
 
 def _cred_file() -> Path:
-    """Where CLI credentials live, honouring REXGRAPH_CONFIG_DIR.
-
-    Resolved per call rather than at import. It was a module constant over `Path.home()`,
-    so it ignored the config directory everything else respects: a test that redirected
-    REXGRAPH_CONFIG_DIR still read the operator's real credentials, found the URL of their
-    live server, connected to it, and reported that `create` works without a server. It
-    also wrote tokens into their home while doing so.
-    """
-    return Path(os.environ.get(
-        "REXGRAPH_CONFIG_DIR", str(Path.home() / ".config" / "rexgraph"))
-    ) / "credentials.json"
+    """Return the credential file in the currently configured application directory."""
+    return config_root() / "credentials.json"
 
 
 # Credential storage

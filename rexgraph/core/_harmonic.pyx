@@ -1,30 +1,17 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
-"""
-rexgraph.core._harmonic: the harmonic plane of numbers.
+"""Dense harmonic reference operations for bounded numerical comparisons.
 
-Compiled routines for characterizing the harmonic subspace ker(L_1) on
-relational complexes, with specific focus on prime relational complexes K_k.
-
-The harmonic plane H is the third mathematical plane beyond R (gradient)
-and C (curl). It is annihilated by both B_1^T and im(B_2^T), invisible
-to gradient and curl measurements, and carries the relational residue
-structure of the complex.
-
-Key results (verified on K_k for k = 5..13):
-    beta_1 = k - 2 when any single vertex is removed from face structure
-    Harmonic concentration on removed vertex edges: (k-1)/k exactly
-    Asymptotic orthogonality of prime tensor positions as k grows
-    H is commutative, non-associative, channel-isotropic
-    Harmonic norm scales as sqrt(ln(p)) for prime p
+The module constructs a basis of ker(L1) from supplied boundary matrices,
+forms component projectors, and evaluates products and coordinate transforms
+on that basis. Runtime sparse analysis uses rexgraph.harmonic_sparse.
 """
 
 import numpy as np
 cimport numpy as np
-from libc.math cimport sqrt, log, fabs
+from libc.math cimport sqrt
 
 ctypedef np.float64_t f64
-ctypedef np.int32_t i32
 
 
 def harmonic_basis(np.ndarray[f64, ndim=2] B1,
@@ -95,73 +82,6 @@ def harmonic_projectors(np.ndarray[f64, ndim=2] B1,
         'P_curl': P_curl,
         'harm_basis': hb,
         'dim_H': dim_H,
-    }
-
-
-def prime_removal_analysis(int k,
-                           int removed_vertex,
-                           np.ndarray[i32, ndim=1] src,
-                           np.ndarray[i32, ndim=1] tgt,
-                           np.ndarray[f64, ndim=2] B1,
-                           np.ndarray[f64, ndim=2] B2,
-                           np.ndarray[f64, ndim=1] log_primes):
-    """
-    Analyze the harmonic structure when a single vertex is removed
-    from the face structure of K_k.
-
-    Parameters
-
-    k : int
-        Number of vertices.
-    removed_vertex : int
-        Index of the vertex whose faces are removed.
-    src, tgt : (nE,) int32
-        Edge source and target arrays.
-    B1 : (nV, nE) float64
-    B2 : (nE, nF) float64
-    log_primes : (k,) float64
-        Natural logarithms of the primes.
-
-    Returns
-
-    dict with beta_1, concentration, harm_norm, and edge level data.
-    """
-    cdef int nE = B1.shape[1]
-    cdef np.ndarray[f64, ndim=2] hb
-    cdef np.ndarray[f64, ndim=1] evals
-
-    hb, evals = harmonic_basis(B1, B2)
-    cdef int dim_H = hb.shape[1]
-
-    # Build log prime edge signal
-    cdef np.ndarray[f64, ndim=1] sig = np.zeros(nE, dtype=np.float64)
-    cdef int e
-    for e in range(nE):
-        sig[e] = log_primes[src[e]] + log_primes[tgt[e]]
-
-    # Project onto harmonic
-    cdef np.ndarray[f64, ndim=2] P_harm = hb @ hb.T
-    cdef np.ndarray[f64, ndim=1] harm = P_harm @ sig
-
-    # Compute concentration on removed vertex edges
-    cdef double h_on = 0.0, h_off = 0.0, h_total
-    for e in range(nE):
-        if src[e] == removed_vertex or tgt[e] == removed_vertex:
-            h_on += harm[e] * harm[e]
-        else:
-            h_off += harm[e] * harm[e]
-    h_total = h_on + h_off
-
-    cdef double concentration = h_on / h_total if h_total > 1e-30 else 0.0
-    cdef double harm_norm = sqrt(h_total)
-
-    return {
-        'beta_1': dim_H,
-        'concentration': concentration,
-        'harm_norm': harm_norm,
-        'expected_beta_1': k - 2,
-        'expected_concentration': <double>(k - 1) / <double>k,
-        'harm_vector': harm,
     }
 
 
@@ -270,82 +190,6 @@ def harmonic_product_table(np.ndarray[f64, ndim=2] harm_basis):
         'max_associativity_violation': max_assoc,
         'associative': max_assoc < 1e-6,
         'nilpotency': nilpotency,
-    }
-
-
-def prime_coupling(int k,
-                   list all_tri,
-                   np.ndarray[i32, ndim=1] src,
-                   np.ndarray[i32, ndim=1] tgt,
-                   np.ndarray[f64, ndim=1] log_primes):
-    """
-    Compute pairwise cosine coupling between prime tensor positions on H.
-
-    For each prime p_i, removes all faces involving vertex i, computes
-    the harmonic projection of the log prime signal, and measures the
-    cosine similarity between all pairs.
-
-    Parameters
-
-    k : int
-        Number of primes.
-    all_tri : list of (int, int, int)
-        All triangular faces of K_k.
-    src, tgt : (nE,) int32
-        Edge endpoints.
-    log_primes : (k,) float64
-        Natural log of each prime.
-
-    Returns
-
-    dict with coupling matrix, mean/max coupling, orthogonality flag.
-    """
-    # Cannot cimport RexGraph, so we import at runtime
-    from rexgraph.graph import RexGraph
-
-    cdef int nE = src.shape[0]
-    cdef int p_idx, e, i, j
-
-    projs = {}
-    for p_idx in range(k):
-        partial = [t for t in all_tri if p_idx not in t]
-        tri_arr = np.array(partial, dtype=np.int32) if partial else np.zeros((0, 3), dtype=np.int32)
-        rex = RexGraph.from_simplicial(src, tgt, tri_arr)
-        B1 = rex.B1_dense
-        B2 = rex.B2_dense
-        hb, _ = harmonic_basis(B1, B2)
-        P = hb @ hb.T
-
-        sig = np.zeros(nE, dtype=np.float64)
-        for e in range(nE):
-            sig[e] = log_primes[src[e]] + log_primes[tgt[e]]
-
-        projs[p_idx] = P @ sig
-
-    cdef np.ndarray[f64, ndim=2] coupling = np.zeros((k, k), dtype=np.float64)
-    cdef double ni, nj
-
-    for i in range(k):
-        for j in range(k):
-            ni = np.linalg.norm(projs[i])
-            nj = np.linalg.norm(projs[j])
-            if ni > 1e-10 and nj > 1e-10:
-                coupling[i, j] = float(np.dot(projs[i], projs[j]) / (ni * nj))
-
-    cdef list off_diag = []
-    for i in range(k):
-        for j in range(k):
-            if i != j:
-                off_diag.append(coupling[i, j])
-
-    cdef double mean_c = float(np.mean(off_diag))
-    cdef double max_c = float(np.max(np.abs(off_diag)))
-
-    return {
-        'coupling': coupling,
-        'mean_coupling': mean_c,
-        'max_coupling': max_c,
-        'asymptotically_orthogonal': mean_c < 0.5,
     }
 
 

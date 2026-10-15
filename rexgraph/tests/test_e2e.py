@@ -380,13 +380,9 @@ class TestLinalgBackend:
 class TestFullPipeline:
     """End to end: build complex, compute everything, verify all identities."""
 
-    def test_drct_complex(self):
-        """DRCT 8V/16E complex: the benchmark case."""
-        edges = [
-            (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7),
-            (1, 2), (1, 3), (2, 4), (3, 5), (4, 6), (5, 7), (6, 7),
-            (1, 7), (2, 3),
-        ]
+    def test_ring_chords_complex(self):
+        """Generated eight vertex ring with eight chords."""
+        edges = [(i, (i + step) % 8) for step in (1, 2) for i in range(8)]
         g = build_graph(edges)
         assert g['nV'] == 8
         assert g['nE'] == 16

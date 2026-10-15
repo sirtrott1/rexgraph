@@ -773,7 +773,7 @@ def metric_cg(operator, b, metric=None, x0=None, precond=None,
     M, identity, diagonal = _metric_action(metric, n)
     # Preconditioned CG needs the preconditioner self adjoint in the SAME pairing as the
     # operator. A diagonal commutes with a diagonal metric, so Jacobi is self adjoint in
-    # M there; against a general metric it need not be, and an unproven preconditioner
+    # M there; against a general metric it need not be, and an unchecked preconditioner
     # would silently break the contract CG is being used for. Run unpreconditioned.
     if precond is None and diagonal:
         precond = _jacobi(operator, n)

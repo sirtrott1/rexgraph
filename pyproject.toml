@@ -1,15 +1,7 @@
-# RexGraph package configuration.
-#
-# Default build (Cython extensions via meson-python):
-#   pip install .
-#   pip install -e ".[dev]"
-#
-# CUDA build (GPU kernels via CMake; requires CUDA toolkit and cupy):
-#   REX_BUILD_CUDA=1 pip install .
-#
-# The meson backend compiles .pyx to .c to .so. Native kernels use OpenMP loops
-# where available, threaded BLAS and rexgraph.compute task scheduling.
-# CMake is invoked separately for .cu compilation when CUDA support is requested.
+# Core package and build configuration.
+# `make install-core` installs the compiled library.
+# `make install-dev` installs editable packages and test dependencies.
+# The root Meson project compiles the Cython extensions.
 
 [build-system]
 requires = [
@@ -71,8 +63,8 @@ dependencies = [
 
 # Explicit matrix exports, spectral references and older sparse analysis APIs.
 # Native construction, exact channels, RCQL and record storage do not need this.
-scipy = ["scipy>=1.10"]
-oracles = ["scipy>=1.10"]
+scipy = ["scipy>=1.13"]
+oracles = ["scipy>=1.13"]
 
 # I/O: Zarr, HDF5, Arrow, Parquet, SQL
 io = [
@@ -81,16 +73,14 @@ io = [
     # `pip install rexgraph[io]` gave you every format except that one. The same shape
     # as the undeclared fsspec on the agent side.
     "safetensors>=0.3",
-    # Store blobs are framed and compressed (agent/rcdb.py `compress_blob`). zlib is the
-    # stdlib fallback so a store always writes and reads without this, but zstd at level
-    # 3 measured 500 MiB/s against 28 MiB/s for zlib level 6 at the same ratio, which over a
-    # corpus is the difference between minutes and an hour.
+    # Optional compression backend for framed store blobs. The standard
+    # library zlib backend remains available when zstandard is absent.
     "zstandard>=0.21",
     "zarr>=2.14",
-    "h5py>=3.8",
-    "pyarrow>=12.0",
+    "h5py>=3.11",
+    "pyarrow>=16.0",
     "sqlalchemy>=2.0",
-    "pandas>=2.0",
+    "pandas>=2.2.2",
     "openpyxl>=3.1",  # Streaming declared XLSX records.
 ]
 
@@ -103,12 +93,18 @@ security = [
 # Heavy: pulls torch. The numpy hodge_* core works without it.
 nn = [
     "torch>=2.0",
+    "scipy>=1.13",
 ]
+
+# Molecular source interpretation through the optional RDKit adapter.
+molecules = ["rdkit>=2025.9"]
 
 # GPU acceleration. Heavy: pulls cupy and needs a CUDA toolkit.
 cuda = [
     "cupy-cuda12x>=13.0",
 ]
+
+vulkan = ["vulkan>=1.3.275.1", "scipy>=1.13"]
 
 # TensorFlow, for `rexgraph.nn.tf_relational`. Separate from `nn` on purpose:
 # tensorflow and a ROCm/CUDA torch CANNOT share an interpreter here. Importing
@@ -122,8 +118,9 @@ tf = [
 
 # Contributor tooling: test, lint, type check, and the build backend.
 dev = [
-    "scipy>=1.10",  # The complete test suite includes explicit reference oracles.
+    "scipy>=1.13",  # The complete test suite includes explicit reference oracles.
     "pytest>=7.0",
+    "tomli>=2.0; python_version < '3.11'",
     "pytest-cov>=4.0",
     "pytest-benchmark>=4.0",
     "cython>=3.0",
@@ -218,7 +215,7 @@ skip = ["pp*", "*-musllinux_*", "*-win32", "*-manylinux_i686"]
 
 # rexgraph.tests is deliberately not shipped in the wheel, so there is no suite inside
 # it to run and this stands in for one. cibuildwheel runs it from a temporary directory,
-# which also proves the wheel imports when the source tree is not in front of it.
+# which also verifies that the wheel imports when the source tree is not in front of it.
 #
 # It reaches the CHARACTER on purpose, not just betti. The first version stopped at
 # betti and passed on four wheels whose _laplacians could not import at all: betti never
@@ -232,16 +229,8 @@ test-command = "python {project}/scripts/smoke_test.py"
 # c11, and the 2_28 image ships a compiler new enough not to fight either.
 manylinux-x86_64-image = "manylinux_2_28"
 
-# WITHOUT this the wheels build, pass a naive import check, and then die on any real
-# call with "undefined symbol: cblas_dgemm". The kernels call cblas_* and LAPACK out
-# of _linalg.pxd, the build image has no BLAS, and nothing links one in. Measured: a
-# full set of four manylinux wheels came out that way, and betti() worked in them
-# because it never reaches _laplacians. auditwheel cannot save this, since there is
-# no NEEDED entry for it to vendor. meson now errors instead of warning when it finds
-# no BLAS, so this line failing is a failed build rather than a broken wheel.
-# the braces matter: `a || b && c` parses as `(a || b) && c`, so without them a
-# successful yum still ran apt get and the build failed with code 127 on an image
-# that had already installed what it needed.
+# Supply BLAS/LAPACK for the cblas and LAPACK calls declared in _linalg.pxd.
+# The build requires a linked provider so extension imports resolve their symbols.
 before-all = "yum install -y openblas-devel || { apt-get update && apt-get install -y libopenblas-dev; }"
 
 [tool.cibuildwheel.macos]
